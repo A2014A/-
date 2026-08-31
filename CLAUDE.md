@@ -65,6 +65,15 @@ There are **two separate scheduling systems**, not one:
 - A **Hebrew-date "special programs" engine**, for one-off/holiday events tied to a specific
   Hebrew date (Chanukah, Pesach, etc.) — layered alongside the weekly engine, not replacing it.
 
+For multi-day holidays (Pesach, Sukkot), a special program needs the **same three-way day-category
+model as the weekly engine (weekday / Shabbat / Chag), scoped to the holiday's own date range**,
+not a single override for the whole holiday. A weekday that falls in Chol HaMoed, a Shabbat that
+falls in Chol HaMoed, and Yom Tov itself each need their own action/time — and which civil dates
+map to which of those three categories **shifts every year** (the holiday isn't pinned to a
+weekday), so this mapping must be recomputed each year via Hebcal against the holiday's actual
+civil dates, never hardcoded to a weekday. Open decision: when Yom Tov itself coincides with
+Shabbat, which category wins — needs product input before implementation.
+
 Within either engine, an event's day category must be assignable **per action (start vs. end),
 not per event**. The home project shipped a real bug from getting this wrong: day category is
 computed at civil midnight (not halachic nightfall), so a single event starting under "Erev
