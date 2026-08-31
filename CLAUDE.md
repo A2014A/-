@@ -71,8 +71,17 @@ not a single override for the whole holiday. A weekday that falls in Chol HaMoed
 falls in Chol HaMoed, and Yom Tov itself each need their own action/time — and which civil dates
 map to which of those three categories **shifts every year** (the holiday isn't pinned to a
 weekday), so this mapping must be recomputed each year via Hebcal against the holiday's actual
-civil dates, never hardcoded to a weekday. Open decision: when Yom Tov itself coincides with
-Shabbat, which category wins — needs product input before implementation.
+civil dates, never hardcoded to a weekday. When Yom Tov itself coincides with Shabbat, don't
+silently resolve it via a hardcoded priority — surface it to the user (see "Conflict warnings"
+below) showing which category actually fires that year.
+
+## Conflict warnings, not silent priority resolution
+
+A "חוק-על" (priority override) already resolves conflicting schedule definitions, but resolving
+silently isn't enough — the product needs to **surface the conflict to the user**, both when they
+save a new definition that overlaps an existing one on the same channel with a contradictory
+action, and for conflicts that only become known at a given year's computation (the Yom Tov /
+Shabbat overlap above is one instance of this, not a special case to hardcode separately).
 
 Within either engine, an event's day category must be assignable **per action (start vs. end),
 not per event**. The home project shipped a real bug from getting this wrong: day category is
