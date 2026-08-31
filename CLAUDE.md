@@ -55,6 +55,29 @@ lighting + whatever else happens to be wired to that panel. The channel-mapping 
 channel take an independent category label regardless of which unit/panel it physically lives on
 — don't assume "unit = category."
 
+## Scheduling engine data model (get this right from the start)
+
+(`docs/product-plan.md`, existing capabilities #3-#4 and §10 "תכונות מנוע תזמון...")
+
+There are **two separate scheduling systems**, not one:
+- A **weekly recurring engine**, keyed by day category (weekday / Friday / Erev Shabbat /
+  Shabbat / Erev Chag / Chag, computed from Hebcal).
+- A **Hebrew-date "special programs" engine**, for one-off/holiday events tied to a specific
+  Hebrew date (Chanukah, Pesach, etc.) — layered alongside the weekly engine, not replacing it.
+
+Within either engine, an event's day category must be assignable **per action (start vs. end),
+not per event**. The home project shipped a real bug from getting this wrong: day category is
+computed at civil midnight (not halachic nightfall), so a single event starting under "Erev
+Shabbat" late at night and ending after midnight silently failed its closing action once the
+category flipped to "Shabbat" underneath it. The fix that's already proven in production: let
+each event be an on+off pair, an on-only action, or an off-only action, with day category set
+independently per action. Design the schema this way up front — modeling it as "one day category
+per event" will reproduce the same bug on every future site.
+
+Also: the time-type field (fixed clock time vs. atmospheric/halachic offset) should default to
+fixed time, exposed as a single toggle rather than a dropdown — this is a deliberate UX choice
+from the home project, not an incidental detail.
+
 ## Decisions made after the plan document was written
 
 These refine or add to `docs/product-plan.md` and aren't yet reflected in that file's text:
