@@ -39,13 +39,8 @@
 <div class="actions" id="actions">
   <div id="typeChoice">
     <p>לאיזה סוג מדבקה?</p>
-    <button onclick="selectType('bags')" id="bagsBtn">שקיות</button>
-    <button onclick="selectType('cartons')">קרטונים</button>
-    <div class="kosher-divider">
-      <p>הוספת תווית כשרות (בנוסף לתווית הרגילה):</p>
-      <button onclick="selectType('kosher_landa')">הוספת כשרות לנדא</button>
-      <button onclick="selectType('kosher_badatz')">הוספת כשרות בד"ץ</button>
-    </div>
+    <!-- הכפתורים נבנים מ-/label-types (label_types.json בשרת) -->
+    <div id="typeButtons"></div>
   </div>
   <div id="qtyChoice" style="display:none">
     <p>כמות מדבקות להדפסה:</p>
@@ -75,30 +70,47 @@ const BAD_KEY_MSG = "מפתח הגישה חסר או שגוי - בדקו את ה
 const WEBHOOK_URL = window.location.origin + "/webhook";
 const ITEMS_URL = window.location.origin + "/items";
 
-// מיפוי הבחירה בדף (bags/cartons/kosher_landa/kosher_badatz) לחוזה החדש -
-// templateKey ו-labelType של הכלי העצמאי (נפרד לגמרי מ-5 המפתחות הרשמיים
-// של JP Quality). תוויות הכשרות הן תוסף לתווית הקיימת, לא תחליף לה.
-const TEMPLATE_KEY_MAP = {
-  bags: "standalone_bags",
-  cartons: "standalone_cartons",
-  kosher_landa: "standalone_kosher_landa",
-  kosher_badatz: "standalone_kosher_badatz",
-};
-const LABEL_TYPE_MAP = {
-  bags: "package",
-  cartons: "carton",
-  kosher_landa: "kosher",
-  kosher_badatz: "kosher",
-};
-const TYPE_DISPLAY_NAME = {
-  bags: "שקיות",
-  cartons: "קרטונים",
-  kosher_landa: "כשרות לנדא",
-  kosher_badatz: "כשרות בד\"ץ",
-};
-// תוויות הכשרות הן גנריות (לוגו חברה + סמל כשרות קבועים בתבנית) -
-// אין להן שדה תאריכים, אז לא מציגים את התיבה "הדפס ללא תאריכים" עבורן.
-const KOSHER_TYPES = ["kosher_landa", "kosher_badatz"];
+// סוגי המדבקות מגיעים מהשרת (label_types.json) - סוג חדש מוסיפים שם, לא כאן.
+// הרשימה הזו משמשת רק אם השרת לא החזיר רשימה.
+const FALLBACK_LABEL_TYPES = [
+  { key: "bags", name: "שקיות", templateKey: "standalone_bags", labelType: "package",
+    fields: ["sku", "product", "barcode", "kosher", "passover", "weight"], dates: true },
+  { key: "cartons", name: "קרטונים", templateKey: "standalone_cartons", labelType: "carton",
+    fields: ["sku", "product", "barcode", "kosher", "passover", "packagesInfo"], dates: true },
+  { key: "kosher_landa", name: "כשרות לנדא", templateKey: "standalone_kosher_landa", labelType: "kosher",
+    fields: ["sku", "product"], dates: false },
+  { key: "kosher_badatz", name: "כשרות בד\"ץ", templateKey: "standalone_kosher_badatz", labelType: "kosher",
+    fields: ["sku", "product"], dates: false },
+];
+const CARTONS_ONLY_KEY = "cartons";
+let labelTypes = FALLBACK_LABEL_TYPES;
+
+function renderTypeButtons() {
+  const wrap = document.getElementById("typeButtons");
+  wrap.innerHTML = "";
+  labelTypes.forEach(t => {
+    const b = document.createElement("button");
+    b.textContent = t.name;
+    b.onclick = () => selectType(t.key);
+    wrap.appendChild(b);
+  });
+}
+
+async function loadLabelTypes() {
+  try {
+    const res = await fetch(window.location.origin + "/label-types", { headers: { "X-Api-Key": apiKey() } });
+    if (res.ok) {
+      const list = await res.json();
+      if (Array.isArray(list) && list.length) labelTypes = list;
+    }
+  } catch (e) {}
+  renderTypeButtons();
+}
+renderTypeButtons();
+loadLabelTypes();
+apiKeyInput.addEventListener("change", loadLabelTypes);
+
+function typeByKey(key) { return labelTypes.find(t => t.key === key) || null; }
 
 let selectedItem = null;
 let selectedType = null;
@@ -166,7 +178,7 @@ function selectItem(item, el) {
   document.getElementById("skipDates").checked = false;
 
   if (item.cartonsOnly) {
-    selectType("cartons");
+    selectType(CARTONS_ONLY_KEY);
   } else {
     document.getElementById("typeChoice").style.display = "block";
   }
@@ -176,29 +188,16 @@ function selectType(type) {
   selectedType = type;
   document.getElementById("typeChoice").style.display = "none";
   document.getElementById("qtyChoice").style.display = "block";
-  // תוויות כשרות הן תוסף גנרי בלי תאריכים - מסתירים את התיבה הזו עבורן
-  document.getElementById("skipDatesRow").style.display =
-    KOSHER_TYPES.includes(type) ? "none" : "flex";
+  // לתבנית בלי תאריכים (למשל תוויות כשרות) לא מציגים את התיבה
+  const t = typeByKey(type);
+  document.getElementById("skipDatesRow").style.display = t && t.dates ? "flex" : "none";
 }
 
-function buildLabelData(item, labelType) {
-  // תוויות כשרות: רק פרטי מוצר + מק"ט (לוגו וסמל הכשרות כבר קבועים בתבנית עצמה)
-  if (KOSHER_TYPES.includes(labelType)) {
-    return { sku: item.sku, product: item.product };
-  }
-
-  const base = {
-    sku: item.sku,
-    product: item.product,
-    barcode: item.barcode,
-    kosher: item.kosher,
-    passover: item.passover
-  };
-  if (labelType === "bags") {
-    return { ...base, weight: item.weight };
-  } else {
-    return { ...base, packagesInfo: item.packagesInfo };
-  }
+// שולחים לתבנית רק את השדות שהסוג מבקש (fields ב-label_types.json)
+function buildLabelData(item, t) {
+  const data = {};
+  t.fields.forEach(f => { data[f] = item[f] == null ? "" : String(item[f]); });
+  return data;
 }
 
 async function doPrint() {
@@ -211,19 +210,20 @@ async function doPrint() {
     statusEl.textContent = "נא למלא שם מזמין לפני ההדפסה.";
     return;
   }
-  if (!selectedItem || !selectedType || !quantity || quantity < 1) {
+  const t = typeByKey(selectedType);
+  if (!selectedItem || !t || !quantity || quantity < 1) {
     statusEl.textContent = "חסרים נתונים - בחרו פריט, סוג מדבקה וכמות תקינה.";
     return;
   }
 
   const job = {
     id: `${selectedItem.sku}-${Date.now()}`,
-    labelType: LABEL_TYPE_MAP[selectedType],
-    templateKey: TEMPLATE_KEY_MAP[selectedType],
+    labelType: t.labelType,
+    templateKey: t.templateKey,
     quantity: quantity,
     requestedBy: requestedBy,
-    skipDates: skipDates,
-    data: buildLabelData(selectedItem, selectedType)
+    skipDates: t.dates ? skipDates : false,
+    data: buildLabelData(selectedItem, t)
   };
 
   const payload = JSON.stringify(job);
@@ -245,7 +245,7 @@ async function doPrint() {
     if (res.status === 401) {
       statusEl.textContent = BAD_KEY_MSG;
     } else if (res.ok && result.status === "printed") {
-      statusEl.textContent = `נשלח בהצלחה: ${quantity} מדבקות (${TYPE_DISPLAY_NAME[selectedType] || selectedType}) - ${requestedBy}`;
+      statusEl.textContent = `נשלח בהצלחה: ${quantity} מדבקות (${t.name}) - ${requestedBy}`;
     } else if (result.status === "already_handled") {
       statusEl.textContent = "עבודה זו כבר טופלה קודם.";
     } else {

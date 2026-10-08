@@ -26,11 +26,15 @@
     "plugins": [
       "expo-router",
       "expo-localization",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-updates"
     ],
     "extra": {
       "supportsRTL": true,
       "forcesRTL": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }

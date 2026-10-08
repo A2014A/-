@@ -1,0 +1,42 @@
+[
+  {
+    "key": "bags",
+    "name": "שקיות",
+    "templateKey": "standalone_bags",
+    "labelType": "package",
+    "template": "C:\\Labels\\BagLabel.btw",
+    "headerTemplate": "C:\\Labels\\HeaderLabel_Bags.btw",
+    "fields": ["sku", "product", "barcode", "kosher", "passover", "weight"],
+    "dates": true
+  },
+  {
+    "key": "cartons",
+    "name": "קרטונים",
+    "templateKey": "standalone_cartons",
+    "labelType": "carton",
+    "template": "C:\\Labels\\CartonLabel.btw",
+    "headerTemplate": "C:\\Labels\\HeaderLabel_Cartons.btw",
+    "fields": ["sku", "product", "barcode", "kosher", "passover", "packagesInfo"],
+    "dates": true
+  },
+  {
+    "key": "kosher_landa",
+    "name": "כשרות לנדא",
+    "templateKey": "standalone_kosher_landa",
+    "labelType": "kosher",
+    "template": "C:\\Labels\\KosherStampLanda.btw",
+    "headerTemplate": null,
+    "fields": ["sku", "product"],
+    "dates": false
+  },
+  {
+    "key": "kosher_badatz",
+    "name": "כשרות בד\"ץ",
+    "templateKey": "standalone_kosher_badatz",
+    "labelType": "kosher",
+    "template": "C:\\Labels\\KosherStampBadatz.btw",
+    "headerTemplate": null,
+    "fields": ["sku", "product"],
+    "dates": false
+  }
+]

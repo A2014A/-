@@ -1,4 +1,6 @@
+import Constants from "expo-constants";
 import { router } from "expo-router";
+import * as Updates from "expo-updates";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 
@@ -130,8 +132,53 @@ export default function SettingsScreen() {
 
         {message ? <Banner kind={message.kind} text={message.text} /> : null}
         <Button title="שמירה" onPress={onSave} busy={saving} />
+        <UpdatesCard />
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+// עדכונים באוויר (EAS Update): האפליקציה בודקת לבד בכל פתיחה ומחילה בפתיחה הבאה.
+// הכפתור כאן מאפשר להחיל עדכון מיד.
+function UpdatesCard() {
+  const [state, setState] = useState<{ busy: boolean; text: string | null; kind: "ok" | "error" | "info" }>({
+    busy: false,
+    text: null,
+    kind: "info",
+  });
+  const version = Constants.expoConfig?.version ?? "";
+  const updateLabel = Updates.isEmbeddedLaunch || !Updates.createdAt
+    ? "גרסה מקורית"
+    : `עדכון מ-${Updates.createdAt.toLocaleDateString("he-IL")}`;
+
+  const onCheck = async () => {
+    if (!Updates.isEnabled) {
+      setState({ busy: false, kind: "info", text: "עדכונים לא זמינים בגרסה הזו." });
+      return;
+    }
+    setState({ busy: true, kind: "info", text: "בודק..." });
+    try {
+      const res = await Updates.checkForUpdateAsync();
+      if (!res.isAvailable) {
+        setState({ busy: false, kind: "ok", text: "האפליקציה מעודכנת." });
+        return;
+      }
+      setState({ busy: true, kind: "info", text: "מוריד עדכון..." });
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync(); // האפליקציה נפתחת מחדש עם העדכון
+    } catch {
+      setState({ busy: false, kind: "error", text: "לא ניתן לבדוק עדכונים כרגע. בדוק חיבור לאינטרנט." });
+    }
+  };
+
+  return (
+    <Card>
+      <Text style={styles.body}>
+        גרסה {version} · {updateLabel}
+      </Text>
+      <Button title="בדוק עדכונים" variant="ghost" onPress={onCheck} busy={state.busy} />
+      {state.text ? <Banner kind={state.kind} text={state.text} /> : null}
+    </Card>
   );
 }
 

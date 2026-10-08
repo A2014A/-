@@ -6,14 +6,14 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } fro
 
 import { ApiError, NO_CONNECTION_MSG, userMessage } from "../../api/http";
 import {
-  STICKER_TYPES,
-  TYPE_DISPLAY_NAME,
+  CARTONS_ONLY_KEY,
+  FALLBACK_LABEL_TYPES,
   buildPrintJob,
-  isKosherType,
+  fetchLabelTypes,
   searchItems,
   sendPrintJob,
   type Item,
-  type StickerType,
+  type LabelType,
 } from "../../api/print";
 import { Banner, Button, Card, Checkbox, Field, Hint, Label, START, colors, font, styles, type BannerKind } from "../../components/ui";
 import { useHistory, type StickerRefill } from "../../lib/history";
@@ -34,7 +34,10 @@ export default function StickersScreen() {
     kind: "idle",
   });
   const [selected, setSelected] = useState<Item | null>(null);
-  const [type, setType] = useState<StickerType | null>(null);
+  // רשימת סוגי המדבקות מגיעה מהשרת (label_types.json), כדי שסוג חדש לא ידרוש עדכון אפליקציה
+  const [labelTypes, setLabelTypes] = useState<LabelType[]>(FALLBACK_LABEL_TYPES);
+  const [typeKey, setTypeKey] = useState<string | null>(null);
+  const type = labelTypes.find((t) => t.key === typeKey) ?? null;
   const [quantity, setQuantity] = useState("1");
   const [skipDates, setSkipDates] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -46,7 +49,7 @@ export default function StickersScreen() {
 
   const resetSelection = () => {
     setSelected(null);
-    setType(null);
+    setTypeKey(null);
     setSkipDates(false);
     setResult(null);
   };
@@ -56,7 +59,7 @@ export default function StickersScreen() {
     setResult(null);
     setSkipDates(false);
     // פריט "קרטונים בלבד" מדלג על בחירת הסוג
-    setType(item.cartonsOnly ? "cartons" : null);
+    setTypeKey(item.cartonsOnly ? CARTONS_ONLY_KEY : null);
   }, []);
 
   // חיפוש אוטומטי מ-2 תווים, debounce של 300ms
@@ -83,7 +86,7 @@ export default function StickersScreen() {
           const match = items.find((i) => i.sku === refill.sku);
           if (match) {
             setSelected(match);
-            setType(match.cartonsOnly ? "cartons" : refill.type);
+            setTypeKey(match.cartonsOnly ? CARTONS_ONLY_KEY : refill.type);
             setQuantity(String(refill.quantity));
             setSkipDates(refill.skipDates);
             setResult({ kind: "info", text: "הטופס מולא מההיסטוריה. בדוק ולחץ \"הדפס\"." });
@@ -99,6 +102,19 @@ export default function StickersScreen() {
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [query, searchNonce, settings.printUrl, settings.apiKey]);
+
+  // בכל כניסה ללשונית - רשימת הסוגים העדכנית מהשרת. אם נכשל, נשארים עם הרשימה הקודמת.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      fetchLabelTypes(settings.printUrl, settings.apiKey)
+        .then((t) => alive && setLabelTypes(t))
+        .catch(() => {});
+      return () => {
+        alive = false;
+      };
+    }, [settings.printUrl, settings.apiKey]),
+  );
 
   // "הדפס שוב" מההיסטוריה
   useFocusEffect(
@@ -130,8 +146,8 @@ export default function StickersScreen() {
     setResult({ kind: "info", text: "שולח להדפסה..." });
 
     const job = buildPrintJob(selected, type, qtyNum, settings.requesterName, skipDates);
-    const typeName = TYPE_DISPLAY_NAME[type];
-    const refill: StickerRefill = { kind: "sticker", sku: selected.sku, type, quantity: qtyNum, skipDates };
+    const typeName = type.name;
+    const refill: StickerRefill = { kind: "sticker", sku: selected.sku, type: type.key, quantity: qtyNum, skipDates };
     const base = { typeLabel: typeName, product: selected.product, quantity: qtyNum, refill };
 
     try {
@@ -214,14 +230,14 @@ export default function StickersScreen() {
               <Hint>פריט זה מודפס בקרטונים בלבד.</Hint>
             ) : (
               <View style={styles.row}>
-                {STICKER_TYPES.map((t) => (
+                {labelTypes.map((t) => (
                   <Button
-                    key={t}
-                    title={TYPE_DISPLAY_NAME[t]}
+                    key={t.key}
+                    title={t.name}
                     variant="ghost"
-                    selected={type === t}
+                    selected={typeKey === t.key}
                     onPress={() => {
-                      setType(t);
+                      setTypeKey(t.key);
                       setResult(null);
                     }}
                     style={{ flexBasis: "47%", flexGrow: 1 }}
@@ -240,11 +256,11 @@ export default function StickersScreen() {
                   selectTextOnFocus
                   style={{ fontSize: 24, fontWeight: "700" }}
                 />
-                {!isKosherType(type) ? (
+                {type.dates ? (
                   <Checkbox label="הדפס ללא תאריכים" value={skipDates} onChange={setSkipDates} />
                 ) : null}
                 <Button
-                  title={`הדפס ${qtyValid ? qtyNum : ""} מדבקות ${TYPE_DISPLAY_NAME[type]}`}
+                  title={`הדפס ${qtyValid ? qtyNum : ""} מדבקות ${type.name}`}
                   onPress={doPrint}
                   busy={printing}
                   disabled={!qtyValid}

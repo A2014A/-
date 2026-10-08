@@ -16,34 +16,30 @@ export type Item = {
   packagesInfo: string;
 };
 
-export type StickerType = "bags" | "cartons" | "kosher_landa" | "kosher_badatz";
-
-export const STICKER_TYPES: StickerType[] = ["bags", "cartons", "kosher_landa", "kosher_badatz"];
-
-export const TEMPLATE_KEY_MAP: Record<StickerType, string> = {
-  bags: "standalone_bags",
-  cartons: "standalone_cartons",
-  kosher_landa: "standalone_kosher_landa",
-  kosher_badatz: "standalone_kosher_badatz",
+/** סוג מדבקה כפי שמוחזר מ-GET /label-types (label_types.json בשרת). */
+export type LabelType = {
+  key: string; // למשל "bags"
+  name: string; // שם לכפתור, למשל "שקיות"
+  templateKey: string; // למשל "standalone_bags"
+  labelType: string; // package / carton / kosher
+  fields: (keyof Item)[]; // אילו שדות של הפריט נשלחים לתבנית
+  dates: boolean; // האם יש בתבנית תאריכים (ואז מציגים "הדפס ללא תאריכים")
 };
 
-export const LABEL_TYPE_MAP: Record<StickerType, "package" | "carton" | "kosher"> = {
-  bags: "package",
-  cartons: "carton",
-  kosher_landa: "kosher",
-  kosher_badatz: "kosher",
-};
+/** משמש רק אם השרת עדיין לא תומך ב-/label-types (גרסה ישנה) - זהה ל-print.html הישן. */
+export const FALLBACK_LABEL_TYPES: LabelType[] = [
+  { key: "bags", name: "שקיות", templateKey: "standalone_bags", labelType: "package",
+    fields: ["sku", "product", "barcode", "kosher", "passover", "weight"], dates: true },
+  { key: "cartons", name: "קרטונים", templateKey: "standalone_cartons", labelType: "carton",
+    fields: ["sku", "product", "barcode", "kosher", "passover", "packagesInfo"], dates: true },
+  { key: "kosher_landa", name: "כשרות לנדא", templateKey: "standalone_kosher_landa", labelType: "kosher",
+    fields: ["sku", "product"], dates: false },
+  { key: "kosher_badatz", name: 'כשרות בד"ץ', templateKey: "standalone_kosher_badatz", labelType: "kosher",
+    fields: ["sku", "product"], dates: false },
+];
 
-export const TYPE_DISPLAY_NAME: Record<StickerType, string> = {
-  bags: "שקיות",
-  cartons: "קרטונים",
-  kosher_landa: "כשרות לנדא",
-  kosher_badatz: 'כשרות בד"ץ',
-};
-
-export function isKosherType(t: StickerType): boolean {
-  return t === "kosher_landa" || t === "kosher_badatz";
-}
+/** הסוג שאליו קופצים אוטומטית בפריט "קרטונים בלבד". */
+export const CARTONS_ONLY_KEY = "cartons";
 
 export type PrintJob = {
   id: string;
@@ -64,32 +60,36 @@ export type PrintResponse = {
   errorCode?: string;
 };
 
-/** זהה ל-buildLabelData ב-print.html. */
-export function buildLabelData(item: Item, type: StickerType): Record<string, string> {
-  if (isKosherType(type)) {
-    return { sku: item.sku, product: item.product };
+/** הנתונים שנשלחים לתבנית - רק השדות שהסוג מבקש (fields ב-label_types.json). */
+export function buildLabelData(item: Item, type: LabelType): Record<string, string> {
+  const data: Record<string, string> = {};
+  for (const f of type.fields) {
+    const v = item[f];
+    data[f] = typeof v === "string" ? v : v == null ? "" : String(v);
   }
-  const base = {
-    sku: item.sku,
-    product: item.product,
-    barcode: item.barcode,
-    kosher: item.kosher,
-    passover: item.passover,
-  };
-  return type === "bags" ? { ...base, weight: item.weight } : { ...base, packagesInfo: item.packagesInfo };
+  return data;
 }
 
-export function buildPrintJob(item: Item, type: StickerType, quantity: number, requestedBy: string, skipDates: boolean): PrintJob {
+export function buildPrintJob(item: Item, type: LabelType, quantity: number, requestedBy: string, skipDates: boolean): PrintJob {
   return {
     id: `${item.sku}-${Date.now()}`,
-    labelType: LABEL_TYPE_MAP[type],
-    templateKey: TEMPLATE_KEY_MAP[type],
+    labelType: type.labelType,
+    templateKey: type.templateKey,
     quantity,
     requestedBy,
-    // לתוויות כשרות אין תאריכים, ולכן אין להן את התיבה הזו
-    skipDates: isKosherType(type) ? false : skipDates,
+    // לתבנית בלי תאריכים אין את התיבה הזו
+    skipDates: type.dates ? skipDates : false,
     data: buildLabelData(item, type),
   };
+}
+
+export async function fetchLabelTypes(baseUrl: string, apiKey: string): Promise<LabelType[]> {
+  const { status, body } = await request<LabelType[]>(joinUrl(baseUrl, "/label-types"), { apiKey });
+  if (status === 404) return FALLBACK_LABEL_TYPES; // שרת ישן
+  if (status !== 200 || !Array.isArray(body) || body.length === 0) {
+    throw new ApiError("server", serverErrorMessage(body, status), status);
+  }
+  return body;
 }
 
 export async function searchItems(baseUrl: string, apiKey: string, q: string): Promise<Item[]> {

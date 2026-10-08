@@ -27,7 +27,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
-import win32com.client, pythoncom, hmac, hashlib, logging, os, pathlib, re, time, sqlite3, pandas as pd
+import win32com.client, pythoncom, hmac, hashlib, json, logging, os, pathlib, re, time, sqlite3, pandas as pd
 
 from api_keys import load_api_keys, check_api_key
 
@@ -51,6 +51,8 @@ MAX_CLOCK_DRIFT_SECONDS = 300  # 5 דקות
 DB_PATH = r"C:\BarTenderWebhook\print_jobs.db"
 
 # --- תוויות ---
+# כאן רק התבניות של JP Quality. סוגי המדבקות של הכלי העצמאי (print.html והאפליקציה)
+# מוגדרים בקובץ label_types.json - ראו load_label_types() בהמשך.
 LABEL_TEMPLATES = {
     # 5 המפתחות הרשמיים שסוכמו מול JP Quality - כרגע רק הראשון בנוי בפועל
     "carton_retail_color_85x85": r"C:\Labels\CartonRetailColor85x85.btw",
@@ -58,12 +60,6 @@ LABEL_TEMPLATES = {
     "package_white_small_60x45": r"C:\Labels\PackageWhiteSmall60x45.btw",
     "package_cohen_bottle_230x60": None,   # טרם נבנה
     "package_cohen_pail_5kg_230x99": None, # טרם נבנה
-
-    # תוויות הכלי העצמאי שלנו (print.html) - לא קשור ל-JP Quality
-    "standalone_cartons": r"C:\Labels\CartonLabel.btw",
-    "standalone_bags": r"C:\Labels\BagLabel.btw",
-    "standalone_kosher_landa": r"C:\Labels\KosherStampLanda.btw",
-    "standalone_kosher_badatz": r"C:\Labels\KosherStampBadatz.btw",
 }
 
 HEADER_TEMPLATES = {
@@ -72,14 +68,90 @@ HEADER_TEMPLATES = {
     "package_white_small_60x45": r"C:\Labels\HeaderPackageWhiteSmall60x45.btw",
     "package_cohen_bottle_230x60": None,
     "package_cohen_pail_5kg_230x99": None,
-
-    "standalone_cartons": r"C:\Labels\HeaderLabel_Cartons.btw",
-    "standalone_bags": r"C:\Labels\HeaderLabel_Bags.btw",
 }
 
-# רק על אלה מפעילים את חישוב התאריכים האוטומטי מהשרת (ראו הסבר ב-/webhook).
-# התבניות הרשמיות של JP Quality מקבלות את כל השדות, כולל תאריכים, מוכנים מהם.
-STANDALONE_TEMPLATE_KEYS = {"standalone_cartons", "standalone_bags"}
+# ---------------------------------------------------------------
+# סוגי המדבקות של הכלי העצמאי - נקראים מ-label_types.json
+# ---------------------------------------------------------------
+# הקובץ נקרא מחדש בכל פעם שהוא משתנה, כך שסוג מדבקה חדש נכנס לתוקף בלי
+# להפעיל את השרת מחדש. print.html והאפליקציה מקבלים את הרשימה מ-/label-types.
+# templateKey חייב להתחיל ב-standalone_, כדי שלעולם לא ידרוס מפתח של JP Quality.
+
+LABEL_TYPES_PATH = BASE_DIR / "label_types.json"
+
+# ברירת מחדל אם הקובץ חסר - זהה לארבעת הסוגים שהיו כתובים כאן קודם
+DEFAULT_LABEL_TYPES = [
+    {"key": "bags", "name": "שקיות", "templateKey": "standalone_bags", "labelType": "package",
+     "template": r"C:\Labels\BagLabel.btw", "headerTemplate": r"C:\Labels\HeaderLabel_Bags.btw",
+     "fields": ["sku", "product", "barcode", "kosher", "passover", "weight"], "dates": True},
+    {"key": "cartons", "name": "קרטונים", "templateKey": "standalone_cartons", "labelType": "carton",
+     "template": r"C:\Labels\CartonLabel.btw", "headerTemplate": r"C:\Labels\HeaderLabel_Cartons.btw",
+     "fields": ["sku", "product", "barcode", "kosher", "passover", "packagesInfo"], "dates": True},
+    {"key": "kosher_landa", "name": "כשרות לנדא", "templateKey": "standalone_kosher_landa", "labelType": "kosher",
+     "template": r"C:\Labels\KosherStampLanda.btw", "headerTemplate": None,
+     "fields": ["sku", "product"], "dates": False},
+    {"key": "kosher_badatz", "name": 'כשרות בד"ץ', "templateKey": "standalone_kosher_badatz", "labelType": "kosher",
+     "template": r"C:\Labels\KosherStampBadatz.btw", "headerTemplate": None,
+     "fields": ["sku", "product"], "dates": False},
+]
+
+# השדות שאפשר לשלוח לתבנית - אלה השדות שמוחזרים מ-/items
+ITEM_FIELDS = {"sku", "product", "barcode", "kosher", "passover", "weight", "packagesInfo", "expiryDate"}
+
+_label_types_cache = {"mtime": None, "types": DEFAULT_LABEL_TYPES}
+
+
+def _validate_label_type(t) -> bool:
+    if not isinstance(t, dict):
+        return False
+    for k in ("key", "name", "templateKey", "labelType", "template"):
+        if not isinstance(t.get(k), str) or not t[k].strip():
+            logging.warning(f"label_types.json: לסוג חסר השדה '{k}' - מדלגים עליו: {t}")
+            return False
+    if not t["templateKey"].startswith("standalone_") or t["templateKey"] in LABEL_TEMPLATES:
+        logging.warning(f"label_types.json: templateKey חייב להתחיל ב-standalone_ - מדלגים: {t['templateKey']}")
+        return False
+    fields = t.get("fields")
+    if not isinstance(fields, list) or not fields or any(f not in ITEM_FIELDS for f in fields):
+        logging.warning(f"label_types.json: fields לא תקין בסוג {t['key']} (מותר: {sorted(ITEM_FIELDS)})")
+        return False
+    return True
+
+
+def load_label_types():
+    """מחזיר את רשימת סוגי המדבקות. קורא מחדש רק אם הקובץ השתנה.
+    קובץ שבור - נשארים עם הגרסה התקינה האחרונה ורושמים שגיאה ביומן."""
+    try:
+        mtime = LABEL_TYPES_PATH.stat().st_mtime
+    except OSError:
+        return DEFAULT_LABEL_TYPES
+    if mtime == _label_types_cache["mtime"]:
+        return _label_types_cache["types"]
+    try:
+        raw = json.loads(LABEL_TYPES_PATH.read_text(encoding="utf-8-sig"))
+        types = [t for t in raw if _validate_label_type(t)]
+        keys = [t["key"] for t in types]
+        if not types or len(keys) != len(set(keys)):
+            raise ValueError("אין סוגים תקינים, או שיש key כפול")
+        _label_types_cache.update(mtime=mtime, types=types)
+        logging.info(f"label_types.json נטען: {keys}")
+    except Exception as e:
+        logging.error(f"שגיאה בקריאת label_types.json - ממשיכים עם הגרסה הקודמת: {e}")
+        _label_types_cache["mtime"] = mtime
+    return _label_types_cache["types"]
+
+
+def label_config():
+    """תבניות, תבניות כותרת ומפתחות עם תאריכים - JP Quality + הכלי העצמאי."""
+    templates = dict(LABEL_TEMPLATES)
+    headers = dict(HEADER_TEMPLATES)
+    date_keys = set()
+    for t in load_label_types():
+        templates[t["templateKey"]] = t["template"]
+        headers[t["templateKey"]] = t.get("headerTemplate") or None
+        if t.get("dates"):
+            date_keys.add(t["templateKey"])
+    return templates, headers, date_keys
 
 # שדות שמערבבים עברית עם ספרה מובילה (כמו '500 גרם') וזקוקים לתיקון כיווניות
 RTL_FIX_FIELDS = {"weight", "packagesInfo", "cartonContents", "targetWeight"}
@@ -332,6 +404,18 @@ def search_items():
     return jsonify(results)
 
 
+@app.route("/label-types")
+def label_types():
+    """רשימת סוגי המדבקות לכפתורים ב-print.html ובאפליקציה (בלי נתיבי קבצים)."""
+    if not check_api_key(request, API_KEYS):
+        return jsonify({"error": "מפתח גישה חסר או שגוי", "errorCode": "INVALID_API_KEY"}), 401
+    return jsonify([
+        {"key": t["key"], "name": t["name"], "templateKey": t["templateKey"], "labelType": t["labelType"],
+         "fields": t["fields"], "dates": bool(t.get("dates"))}
+        for t in load_label_types()
+    ])
+
+
 # ---------------------------------------------------------------
 # בדיקת זמינות - לא נוגעת ב-BarTender בכלל
 # ---------------------------------------------------------------
@@ -410,7 +494,8 @@ def webhook():
         # ניתן להסיר את השורה הזו אחרי שהבעיה תיפתר.
         logging.info(f"[DEBUG] job {job_id} ({template_key}) קיבל data: {data}")
 
-        template_path = LABEL_TEMPLATES.get(template_key)
+        templates, header_templates, date_keys = label_config()
+        template_path = templates.get(template_key)
         if not template_path:
             msg = f"templateKey לא מוכר או עדיין לא מוגדר במערכת: {template_key}"
             save_job(job_id, "error", label_type, template_key, 0, requested_by, msg)
@@ -425,7 +510,7 @@ def webhook():
             save_job(job_id, "error", label_type, template_key, 0, requested_by, msg)
             return make_response("error", job_id, msg, "INVALID_QUANTITY", 400)
 
-        if template_key in STANDALONE_TEMPLATE_KEYS:
+        if template_key in date_keys:
             # רק לתוויות הכלי העצמאי - מחשבים תאריכים כאן. תבניות JP Quality
             # מקבלות את כל השדות (כולל תאריכים) מוכנים מהם, ולא נוגעים בזה.
             production_date = date.today()
@@ -450,8 +535,8 @@ def webhook():
             bt = win32com.client.Dispatch("BarTender.Application")
 
             # מק"ט על תווית הכותרת - רק לתוויות הכלי העצמאי. תבניות JP Quality לא משתנות.
-            header_optional = {"sku": data.get("sku", "")} if template_key in STANDALONE_TEMPLATE_KEYS else None
-            print_header_label(bt, HEADER_TEMPLATES.get(template_key), requested_by, data.get("product", ""), quantity, header_optional)
+            header_optional = {"sku": data.get("sku", "")} if template_key.startswith("standalone_") else None
+            print_header_label(bt, header_templates.get(template_key), requested_by, data.get("product", ""), quantity, header_optional)
 
             fmt = bt.Formats.Open(template_path, False, "")
             try:

@@ -4,8 +4,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
-import type { StickerType } from "../api/print";
-
 const HISTORY_KEY = "history.v1";
 const MAX_ENTRIES = 50;
 
@@ -14,7 +12,7 @@ export type HistoryStatus = "ok" | "already" | "error";
 export type StickerRefill = {
   kind: "sticker";
   sku: string;
-  type: StickerType;
+  type: string; // key של סוג המדבקה (label_types.json)
   quantity: number;
   skipDates: boolean;
 };
