@@ -31,10 +31,17 @@
     ],
     "extra": {
       "supportsRTL": true,
-      "forcesRTL": true
+      "forcesRTL": true,
+      "eas": {
+        "projectId": "b8e2ab93-d8be-4a40-8e22-8062cb3302b7"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "owner": "a0527613684",
+    "updates": {
+      "url": "https://u.expo.dev/b8e2ab93-d8be-4a40-8e22-8062cb3302b7"
     }
   }
 }
