@@ -109,6 +109,32 @@ export async function fetchLabelTypes(baseUrl: string, apiKey: string): Promise<
   return body;
 }
 
+/** הדפסה אחת מ-GET /print-history (טבלת print_jobs בשרת). */
+export type ServerJob = {
+  id: string;
+  status: string; // printed / error
+  typeName: string;
+  quantity: number;
+  requestedBy: string; // השם שהוקלד
+  keyOwner: string; // בעל מפתח הגישה; ריק = JP Quality או עבודה ישנה
+  source: "app" | "other";
+  sku: string;
+  product: string;
+  processedAt: string; // UTC, ISO
+};
+
+export async function fetchPrintHistory(baseUrl: string, apiKey: string, limit = 100): Promise<{ isAdmin: boolean; jobs: ServerJob[] }> {
+  const { status, body } = await request<{ isAdmin: boolean; jobs: ServerJob[] }>(
+    joinUrl(baseUrl, `/print-history?limit=${limit}`),
+    { apiKey },
+  );
+  if (status === 404) throw new ApiError("server", "השרת עדיין לא מעודכן להיסטוריה משותפת.", 404);
+  if (status !== 200 || !body || !Array.isArray(body.jobs)) {
+    throw new ApiError("server", serverErrorMessage(body, status), status);
+  }
+  return body;
+}
+
 export async function searchItems(baseUrl: string, apiKey: string, q: string): Promise<Item[]> {
   const url = joinUrl(baseUrl, `/items?q=${encodeURIComponent(q)}`);
   const { status, body } = await request<Item[] | { error: string }>(url, { apiKey });

@@ -30,6 +30,7 @@ from dateutil.relativedelta import relativedelta
 import win32com.client, pythoncom, hmac, hashlib, json, logging, os, pathlib, re, time, sqlite3, pandas as pd
 
 from api_keys import load_api_keys, check_api_key
+from history_db import ensure_history_columns, record_job, load_history_admins, query_history
 
 load_dotenv()
 app = Flask(__name__)
@@ -39,6 +40,7 @@ BASE_DIR = pathlib.Path(__file__).parent
 logging.basicConfig(filename="print_log.txt", level=logging.INFO)
 
 API_KEYS = load_api_keys()
+HISTORY_ADMINS = load_history_admins()
 
 # ---------------------------------------------------------------
 # הגדרות שצריך להתאים אצלכם
@@ -209,6 +211,7 @@ def init_db():
     conn.close()
 
 init_db()
+ensure_history_columns(DB_PATH)  # מוסיף עמודות sku/product/key_owner להיסטוריה המשותפת
 
 
 def get_job(job_id: str):
@@ -219,18 +222,10 @@ def get_job(job_id: str):
     return dict(row) if row else None
 
 
-def save_job(job_id, status, label_type, template_key, quantity, requested_by, message) -> str:
-    processed_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """INSERT OR REPLACE INTO print_jobs
-           (id, status, label_type, template_key, quantity, requested_by, message, processed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (job_id, status, label_type, template_key, quantity, requested_by, message, processed_at),
-    )
-    conn.commit()
-    conn.close()
-    return processed_at
+def save_job(job_id, status, label_type, template_key, quantity, requested_by, message,
+             sku="", product="", key_owner=None) -> str:
+    return record_job(job_id, status, label_type, template_key, quantity, requested_by, message,
+                      sku=sku, product=product, key_owner=key_owner, db_path=DB_PATH)
 
 
 # ---------------------------------------------------------------
@@ -418,6 +413,37 @@ def search_items():
     return jsonify(results)
 
 
+@app.route("/print-history")
+def print_history():
+    """ההדפסות האחרונות. מנהל (HISTORY_ADMINS) רואה את כולן; כל השאר רק את שלהם."""
+    user = check_api_key(request, API_KEYS)
+    if not user:
+        return jsonify({"error": "מפתח גישה חסר או שגוי", "errorCode": "INVALID_API_KEY"}), 401
+    is_admin = user in HISTORY_ADMINS
+    names = {t["templateKey"]: t["name"] for t in load_label_types()}
+    rows = query_history(user, is_admin, request.args.get("limit", 100, type=int), DB_PATH)
+    return jsonify({
+        "isAdmin": is_admin,
+        "jobs": [
+            {
+                "id": r["id"],
+                "status": r["status"],
+                "typeName": "גבינות" if r["template_key"] == "cheese"
+                            else names.get(r["template_key"]) or r["template_key"] or "",
+                "quantity": r["quantity"] or 0,
+                "requestedBy": r["requested_by"] or "",
+                "keyOwner": r["key_owner"] or "",
+                # בלי key_owner = בקשה חתומה (JP Quality) או עבודה מלפני העדכון
+                "source": "app" if r["key_owner"] else "other",
+                "sku": r["sku"] or "",
+                "product": r["product"] or "",
+                "processedAt": r["processed_at"],
+            }
+            for r in rows
+        ],
+    })
+
+
 @app.route("/label-types")
 def label_types():
     """רשימת סוגי המדבקות לכפתורים ב-print.html ובאפליקציה (בלי נתיבי קבצים)."""
@@ -505,6 +531,8 @@ def webhook():
         template_key = job.get("templateKey")
         requested_by = clean(job.get("requestedBy", ""))
         data = {k: clean(v) for k, v in job.get("data", {}).items()}
+        # להיסטוריה המשותפת בלבד - לא משפיע על ההדפסה או על התשובה
+        job_extra = {"sku": data.get("sku", ""), "product": data.get("product", ""), "key_owner": key_owner}
 
         # --- DEBUG זמני: לוג מלא של השדות שהתקבלו, לצורך איתור בעיית allergens ---
         # ניתן להסיר את השורה הזו אחרי שהבעיה תיפתר.
@@ -514,7 +542,7 @@ def webhook():
         template_path = templates.get(template_key)
         if not template_path:
             msg = f"templateKey לא מוכר או עדיין לא מוגדר במערכת: {template_key}"
-            save_job(job_id, "error", label_type, template_key, 0, requested_by, msg)
+            save_job(job_id, "error", label_type, template_key, 0, requested_by, msg, **job_extra)
             return make_response("error", job_id, msg, "UNKNOWN_TEMPLATE_KEY", 400)
 
         # הרשאה לפי סוג מדבקה (allowedUsers ב-label_types.json) - רק לבקשות עם מפתח גישה.
@@ -532,7 +560,7 @@ def webhook():
                 raise ValueError
         except (TypeError, ValueError):
             msg = "quantity לא תקין"
-            save_job(job_id, "error", label_type, template_key, 0, requested_by, msg)
+            save_job(job_id, "error", label_type, template_key, 0, requested_by, msg, **job_extra)
             return make_response("error", job_id, msg, "INVALID_QUANTITY", 400)
 
         if template_key in date_keys:
@@ -585,13 +613,13 @@ def webhook():
                 fmt.Close(2)
 
             msg = f"{requested_by or 'לא ידוע'} הדפיס/ה {quantity} מדבקות ({template_key})"
-            processed_at = save_job(job_id, "printed", label_type, template_key, quantity, requested_by, msg)
+            processed_at = save_job(job_id, "printed", label_type, template_key, quantity, requested_by, msg, **job_extra)
             logging.info(msg + f" - עבודה {job_id}")
             return make_response("printed", job_id, msg, processed_at=processed_at)
 
         except Exception as e:
             msg = str(e)
-            processed_at = save_job(job_id, "error", label_type, template_key, quantity, requested_by, msg)
+            processed_at = save_job(job_id, "error", label_type, template_key, quantity, requested_by, msg, **job_extra)
             logging.error(f"נכשל job {job_id}: {msg}")
             return make_response("error", job_id, msg, "PRINT_FAILED", 500, processed_at=processed_at)
 

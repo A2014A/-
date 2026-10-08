@@ -21,12 +21,15 @@ X-Api-Key header — see api_keys.py. The keys are read from the same .env file
 as webhook_receiver.py.
 """
 
+import logging
 import pathlib
+import uuid
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 
 from api_keys import load_api_keys, check_api_key
-from cheese_labels_routes import cheese_bp
+from cheese_labels_routes import cheese_bp, load_cheese_items
+from history_db import ensure_history_columns, record_job
 
 load_dotenv()
 BASE_DIR = pathlib.Path(__file__).parent
@@ -35,6 +38,11 @@ API_KEYS = load_api_keys()
 app = Flask(__name__)
 app.register_blueprint(cheese_bp)
 
+try:
+    ensure_history_columns()
+except Exception as e:
+    logging.error(f"לא ניתן להכין את טבלת ההיסטוריה: {e}")
+
 
 @app.before_request
 def require_api_key():
@@ -42,9 +50,33 @@ def require_api_key():
     # every data/print route behind it needs a valid key.
     if request.path == "/":
         return None
-    if not check_api_key(request, API_KEYS):
+    g.key_owner = check_api_key(request, API_KEYS)
+    if not g.key_owner:
         return jsonify({"error": "מפתח גישה חסר או שגוי", "errorCode": "INVALID_API_KEY"}), 401
     return None
+
+
+@app.after_request
+def record_cheese_batch(response):
+    # רושם סבב גבינות שהודפס בהצלחה בהיסטוריה המשותפת (אותה טבלה של המדבקות).
+    # כשל ברישום לא משפיע על ההדפסה או על התשובה.
+    if request.path != "/print-cheese-batch" or response.status_code != 200:
+        return response
+    try:
+        body = request.get_json(silent=True) or {}
+        result = response.get_json(silent=True) or {}
+        sku = str(body.get("sku", ""))
+        item = next((i for i in load_cheese_items() if str(i.get("sku")) == sku), {})
+        record_job(
+            f"cheese-{uuid.uuid4().hex[:12]}", "printed", "cheese", "cheese",
+            int(result.get("printed") or 0),
+            str(body.get("requestedBy") or g.get("key_owner") or ""),
+            f"batch {body.get('batchNumber', '')}",
+            sku=sku, product=str(item.get("productHe") or ""), key_owner=g.get("key_owner"),
+        )
+    except Exception as e:
+        logging.error(f"רישום סבב גבינות בהיסטוריה נכשל: {e}")
+    return response
 
 
 @app.route("/")

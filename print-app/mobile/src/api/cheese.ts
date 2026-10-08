@@ -40,6 +40,7 @@ export type PreviewResponse = {
 export type PrintBatchRequest = {
   sku: string;
   batchNumber: string;
+  requestedBy?: string; // לרישום בהיסטוריה המשותפת
   rows: { weightKg: number; uniqueId: string }[];
 };
 

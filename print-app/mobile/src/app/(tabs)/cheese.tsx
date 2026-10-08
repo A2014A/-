@@ -211,7 +211,12 @@ export default function CheeseScreen() {
       refill: { kind: "cheese" as const, sku: p.sku, weightsText: rowsToWeightsText(rows), batchNumber: batchNumber.trim() },
     };
     try {
-      const res = await printCheeseBatch(base, key, { sku: p.sku, batchNumber: batchNumber.trim(), rows });
+      const res = await printCheeseBatch(base, key, {
+        sku: p.sku,
+        batchNumber: batchNumber.trim(),
+        requestedBy: settings.requesterName,
+        rows,
+      });
       const text = `הודפסו ${res.printed} תוויות בהצלחה`;
       setPrintMsg({ kind: "ok", text });
       history.add({ ...entryBase, status: "ok", message: text });
