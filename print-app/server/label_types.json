@@ -53,7 +53,7 @@
     "fields": ["sku", "product"],
     "dates": false,
     "group": "מדבקות לפסח",
-    "enabled": false,
+    "enabled": true,
     "allowedUsers": ["yehuda", "office1", "office2"]
   },
   {
@@ -66,7 +66,7 @@
     "fields": ["sku", "product"],
     "dates": false,
     "group": "מדבקות לפסח",
-    "enabled": false,
+    "enabled": true,
     "allowedUsers": ["yehuda", "office1", "office2"]
   },
   {
@@ -79,7 +79,7 @@
     "fields": ["sku", "product"],
     "dates": false,
     "group": "מדבקות לפסח",
-    "enabled": false,
+    "enabled": true,
     "allowedUsers": ["yehuda", "office1", "office2"]
   }
 ]
