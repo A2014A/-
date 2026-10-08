@@ -89,10 +89,10 @@ DEFAULT_LABEL_TYPES = [
      "fields": ["sku", "product", "barcode", "kosher", "passover", "packagesInfo"], "dates": True},
     {"key": "kosher_landa", "name": "כשרות לנדא", "templateKey": "standalone_kosher_landa", "labelType": "kosher",
      "template": r"C:\Labels\KosherStampLanda.btw", "headerTemplate": None,
-     "fields": ["sku", "product"], "dates": False},
+     "fields": ["sku", "product"], "dates": False, "group": "תוויות כשרות"},
     {"key": "kosher_badatz", "name": 'כשרות בד"ץ', "templateKey": "standalone_kosher_badatz", "labelType": "kosher",
      "template": r"C:\Labels\KosherStampBadatz.btw", "headerTemplate": None,
-     "fields": ["sku", "product"], "dates": False},
+     "fields": ["sku", "product"], "dates": False, "group": "תוויות כשרות"},
 ]
 
 # השדות שאפשר לשלוח לתבנית - אלה השדות שמוחזרים מ-/items
@@ -110,6 +110,9 @@ def _validate_label_type(t) -> bool:
             return False
     if not t["templateKey"].startswith("standalone_") or t["templateKey"] in LABEL_TEMPLATES:
         logging.warning(f"label_types.json: templateKey חייב להתחיל ב-standalone_ - מדלגים: {t['templateKey']}")
+        return False
+    if t.get("group") is not None and not isinstance(t.get("group"), str):
+        logging.warning(f"label_types.json: group חייב להיות טקסט - מדלגים על {t['key']}")
         return False
     fields = t.get("fields")
     if not isinstance(fields, list) or not fields or any(f not in ITEM_FIELDS for f in fields):
@@ -129,7 +132,8 @@ def load_label_types():
         return _label_types_cache["types"]
     try:
         raw = json.loads(LABEL_TYPES_PATH.read_text(encoding="utf-8-sig"))
-        types = [t for t in raw if _validate_label_type(t)]
+        # "enabled": false = סוג שהוגדר מראש אבל התבנית שלו עוד לא מוכנה - לא מוצג ולא מודפס
+        types = [t for t in raw if _validate_label_type(t) and t.get("enabled", True) is not False]
         keys = [t["key"] for t in types]
         if not types or len(keys) != len(set(keys)):
             raise ValueError("אין סוגים תקינים, או שיש key כפול")
@@ -411,7 +415,7 @@ def label_types():
         return jsonify({"error": "מפתח גישה חסר או שגוי", "errorCode": "INVALID_API_KEY"}), 401
     return jsonify([
         {"key": t["key"], "name": t["name"], "templateKey": t["templateKey"], "labelType": t["labelType"],
-         "fields": t["fields"], "dates": bool(t.get("dates"))}
+         "fields": t["fields"], "dates": bool(t.get("dates")), "group": t.get("group") or ""}
         for t in load_label_types()
     ])
 

@@ -24,7 +24,23 @@ export type LabelType = {
   labelType: string; // package / carton / kosher
   fields: (keyof Item)[]; // אילו שדות של הפריט נשלחים לתבנית
   dates: boolean; // האם יש בתבנית תאריכים (ואז מציגים "הדפס ללא תאריכים")
+  group?: string; // כותרת קבוצה (למשל "מדבקות לפסח"); ריק = בלי כותרת
 };
+
+/** מחלק את הסוגים לקבוצות לפי סדר הופעתן ברשימה. */
+export function groupLabelTypes(types: LabelType[]): { group: string; types: LabelType[] }[] {
+  const groups: { group: string; types: LabelType[] }[] = [];
+  for (const t of types) {
+    const g = t.group ?? "";
+    let entry = groups.find((x) => x.group === g);
+    if (!entry) {
+      entry = { group: g, types: [] };
+      groups.push(entry);
+    }
+    entry.types.push(t);
+  }
+  return groups;
+}
 
 /** משמש רק אם השרת עדיין לא תומך ב-/label-types (גרסה ישנה) - זהה ל-print.html הישן. */
 export const FALLBACK_LABEL_TYPES: LabelType[] = [
@@ -33,9 +49,9 @@ export const FALLBACK_LABEL_TYPES: LabelType[] = [
   { key: "cartons", name: "קרטונים", templateKey: "standalone_cartons", labelType: "carton",
     fields: ["sku", "product", "barcode", "kosher", "passover", "packagesInfo"], dates: true },
   { key: "kosher_landa", name: "כשרות לנדא", templateKey: "standalone_kosher_landa", labelType: "kosher",
-    fields: ["sku", "product"], dates: false },
+    fields: ["sku", "product"], dates: false, group: "תוויות כשרות" },
   { key: "kosher_badatz", name: 'כשרות בד"ץ', templateKey: "standalone_kosher_badatz", labelType: "kosher",
-    fields: ["sku", "product"], dates: false },
+    fields: ["sku", "product"], dates: false, group: "תוויות כשרות" },
 ];
 
 /** הסוג שאליו קופצים אוטומטית בפריט "קרטונים בלבד". */

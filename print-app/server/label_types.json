@@ -27,7 +27,8 @@
     "template": "C:\\Labels\\KosherStampLanda.btw",
     "headerTemplate": null,
     "fields": ["sku", "product"],
-    "dates": false
+    "dates": false,
+    "group": "תוויות כשרות"
   },
   {
     "key": "kosher_badatz",
@@ -37,6 +38,43 @@
     "template": "C:\\Labels\\KosherStampBadatz.btw",
     "headerTemplate": null,
     "fields": ["sku", "product"],
-    "dates": false
+    "dates": false,
+    "group": "תוויות כשרות"
+  },
+  {
+    "key": "pesach_landa_chatam_sofer",
+    "name": "לנדא + חתם סופר - פסח",
+    "templateKey": "standalone_pesach_landa_chatam_sofer",
+    "labelType": "kosher",
+    "template": "C:\\Labels\\KosherPesachLandaChatamSofer.btw",
+    "headerTemplate": null,
+    "fields": ["sku", "product"],
+    "dates": false,
+    "group": "מדבקות לפסח",
+    "enabled": false
+  },
+  {
+    "key": "pesach_landa_beit_yosef",
+    "name": "לנדא + בית יוסף - ללא קטניות",
+    "templateKey": "standalone_pesach_landa_beit_yosef",
+    "labelType": "kosher",
+    "template": "C:\\Labels\\KosherPesachLandaBeitYosef.btw",
+    "headerTemplate": null,
+    "fields": ["sku", "product"],
+    "dates": false,
+    "group": "מדבקות לפסח",
+    "enabled": false
+  },
+  {
+    "key": "pesach_landa_beit_yosef_kitniyot",
+    "name": "לנדא + בית יוסף - קטניות",
+    "templateKey": "standalone_pesach_landa_beit_yosef_kitniyot",
+    "labelType": "kosher",
+    "template": "C:\\Labels\\KosherPesachLandaBeitYosefKitniyot.btw",
+    "headerTemplate": null,
+    "fields": ["sku", "product"],
+    "dates": false,
+    "group": "מדבקות לפסח",
+    "enabled": false
   }
 ]

@@ -10,6 +10,7 @@ import {
   FALLBACK_LABEL_TYPES,
   buildPrintJob,
   fetchLabelTypes,
+  groupLabelTypes,
   searchItems,
   sendPrintJob,
   type Item,
@@ -229,21 +230,26 @@ export default function StickersScreen() {
             {selected.cartonsOnly ? (
               <Hint>פריט זה מודפס בקרטונים בלבד.</Hint>
             ) : (
-              <View style={styles.row}>
-                {labelTypes.map((t) => (
-                  <Button
-                    key={t.key}
-                    title={t.name}
-                    variant="ghost"
-                    selected={typeKey === t.key}
-                    onPress={() => {
-                      setTypeKey(t.key);
-                      setResult(null);
-                    }}
-                    style={{ flexBasis: "47%", flexGrow: 1 }}
-                  />
-                ))}
-              </View>
+              groupLabelTypes(labelTypes).map((g) => (
+                <View key={g.group} style={{ gap: 8 }}>
+                  {g.group ? <Hint>{g.group}</Hint> : null}
+                  <View style={styles.row}>
+                    {g.types.map((t) => (
+                      <Button
+                        key={t.key}
+                        title={t.name}
+                        variant="ghost"
+                        selected={typeKey === t.key}
+                        onPress={() => {
+                          setTypeKey(t.key);
+                          setResult(null);
+                        }}
+                        style={{ flexBasis: "47%", flexGrow: 1 }}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))
             )}
 
             {type ? (
