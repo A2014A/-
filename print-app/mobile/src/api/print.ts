@@ -102,7 +102,8 @@ export function buildPrintJob(item: Item, type: LabelType, quantity: number, req
 export async function fetchLabelTypes(baseUrl: string, apiKey: string): Promise<LabelType[]> {
   const { status, body } = await request<LabelType[]>(joinUrl(baseUrl, "/label-types"), { apiKey });
   if (status === 404) return FALLBACK_LABEL_TYPES; // שרת ישן
-  if (status !== 200 || !Array.isArray(body) || body.length === 0) {
+  // רשימה ריקה היא תשובה תקינה: למשתמש אין הרשאה לאף סוג (allowedUsers בשרת)
+  if (status !== 200 || !Array.isArray(body)) {
     throw new ApiError("server", serverErrorMessage(body, status), status);
   }
   return body;

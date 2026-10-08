@@ -89,6 +89,10 @@ let labelTypes = FALLBACK_LABEL_TYPES;
 function renderTypeButtons() {
   const wrap = document.getElementById("typeButtons");
   wrap.innerHTML = "";
+  if (!labelTypes.length) {
+    wrap.innerHTML = '<p class="hint-msg">אין לך הרשאה להדפיס מדבקות. פנה למנהל.</p>';
+    return;
+  }
   const groups = [];
   labelTypes.forEach(t => {
     const g = t.group || "";
@@ -119,7 +123,8 @@ async function loadLabelTypes() {
     const res = await fetch(window.location.origin + "/label-types", { headers: { "X-Api-Key": apiKey() } });
     if (res.ok) {
       const list = await res.json();
-      if (Array.isArray(list) && list.length) labelTypes = list;
+      // רשימה ריקה = למשתמש אין הרשאה לאף סוג מדבקה (allowedUsers בשרת)
+      if (Array.isArray(list)) labelTypes = list;
     }
   } catch (e) {}
   renderTypeButtons();

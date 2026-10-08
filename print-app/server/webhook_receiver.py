@@ -114,6 +114,10 @@ def _validate_label_type(t) -> bool:
     if t.get("group") is not None and not isinstance(t.get("group"), str):
         logging.warning(f"label_types.json: group חייב להיות טקסט - מדלגים על {t['key']}")
         return False
+    allowed = t.get("allowedUsers")
+    if allowed is not None and (not isinstance(allowed, list) or any(not isinstance(u, str) for u in allowed)):
+        logging.warning(f"label_types.json: allowedUsers חייב להיות רשימת שמות - מדלגים על {t['key']}")
+        return False
     fields = t.get("fields")
     if not isinstance(fields, list) or not fields or any(f not in ITEM_FIELDS for f in fields):
         logging.warning(f"label_types.json: fields לא תקין בסוג {t['key']} (מותר: {sorted(ITEM_FIELDS)})")
@@ -143,6 +147,12 @@ def load_label_types():
         logging.error(f"שגיאה בקריאת label_types.json - ממשיכים עם הגרסה הקודמת: {e}")
         _label_types_cache["mtime"] = mtime
     return _label_types_cache["types"]
+
+
+def user_may_print(label_type: dict, user: str) -> bool:
+    """allowedUsers חסר = כולם. אחרת רק השמות שברשימה (השמות מ-API_KEYS ב-.env)."""
+    allowed = label_type.get("allowedUsers")
+    return allowed is None or user in allowed
 
 
 def label_config():
@@ -411,12 +421,14 @@ def search_items():
 @app.route("/label-types")
 def label_types():
     """רשימת סוגי המדבקות לכפתורים ב-print.html ובאפליקציה (בלי נתיבי קבצים)."""
-    if not check_api_key(request, API_KEYS):
+    user = check_api_key(request, API_KEYS)
+    if not user:
         return jsonify({"error": "מפתח גישה חסר או שגוי", "errorCode": "INVALID_API_KEY"}), 401
+    # כל משתמש רואה רק את הסוגים שמותר לו להדפיס
     return jsonify([
         {"key": t["key"], "name": t["name"], "templateKey": t["templateKey"], "labelType": t["labelType"],
          "fields": t["fields"], "dates": bool(t.get("dates")), "group": t.get("group") or ""}
-        for t in load_label_types()
+        for t in load_label_types() if user_may_print(t, user)
     ])
 
 
@@ -504,6 +516,15 @@ def webhook():
             msg = f"templateKey לא מוכר או עדיין לא מוגדר במערכת: {template_key}"
             save_job(job_id, "error", label_type, template_key, 0, requested_by, msg)
             return make_response("error", job_id, msg, "UNKNOWN_TEMPLATE_KEY", 400)
+
+        # הרשאה לפי סוג מדבקה (allowedUsers ב-label_types.json) - רק לבקשות עם מפתח גישה.
+        # בקשות חתומות של JP Quality לא עוברות כאן בכלל. לא נרשמת ביומן העבודות,
+        # כדי שאותו id יוכל להישלח שוב אחרי שההרשאה תתוקן.
+        if key_owner:
+            lt = next((t for t in load_label_types() if t["templateKey"] == template_key), None)
+            if lt and not user_may_print(lt, key_owner):
+                logging.warning(f"job {job_id}: '{key_owner}' ניסה להדפיס {template_key} בלי הרשאה")
+                return make_response("error", job_id, f"אין לך הרשאה להדפיס מדבקות מסוג '{lt['name']}'", "NOT_ALLOWED", 403)
 
         try:
             quantity = int(job.get("quantity", 1))

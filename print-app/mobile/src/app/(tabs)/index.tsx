@@ -227,7 +227,9 @@ export default function StickersScreen() {
         {selected ? (
           <Card>
             <Label>סוג מדבקה</Label>
-            {selected.cartonsOnly ? (
+            {labelTypes.length === 0 ? (
+              <Hint>אין לך הרשאה להדפיס מדבקות. פנה למנהל.</Hint>
+            ) : selected.cartonsOnly ? (
               <Hint>פריט זה מודפס בקרטונים בלבד.</Hint>
             ) : (
               groupLabelTypes(labelTypes).map((g) => (
