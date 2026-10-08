@@ -9,6 +9,14 @@ There are no build/lint/test commands to document because none of the app scaffo
 created. Once real code lands, replace this section with actual commands (how to install deps,
 run the dev server, run a single test, lint, etc.) instead of leaving this note.
 
+## Separate project in `print-app/`
+
+`print-app/` is an unrelated project that lives in this repo by the owner's choice: a phone app
+(Expo, `print-app/mobile/`) for printing stickers and cheese labels, plus copies of the existing
+Flask print servers it talks to (`print-app/server/`, which run on the office print PC). None of the
+"עוזר לגבאי" guidance below applies to it. The `/webhook` HMAC path in `print-app/server/` is also
+used by JP Quality and must keep working unchanged.
+
 ## What this project is
 
 A multi-tenant SaaS product ("**עוזר לגבאי**") that turns an existing single-site home/synagogue
