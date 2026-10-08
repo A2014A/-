@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>הדפסת מדבקות</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 20px; }
+  label { font-weight: bold; display: block; margin-top: 12px; }
+  input[type=text] { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+  .result { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin-top: 8px; cursor: pointer; }
+  .result:hover { background: #f5f5f5; }
+  .selected { background: #eef6ff; border-color: #4a90d9; }
+  .error-msg { color: #c0392b; margin-top: 8px; }
+  .hint-msg { color: #777; margin-top: 8px; }
+  .actions { margin-top: 16px; display: none; }
+  .actions.visible { display: block; }
+  button { padding: 10px 16px; font-size: 15px; margin-inline-end: 8px; margin-top: 8px; cursor: pointer; }
+  input[type=number] { width: 80px; padding: 8px; font-size: 15px; }
+  .checkbox-row { margin-top: 10px; font-weight: normal; display: flex; align-items: center; gap: 6px; }
+  #status { margin-top: 12px; font-weight: bold; }
+  .kosher-divider { margin-top: 14px; padding-top: 10px; border-top: 1px solid #ddd; }
+</style>
+</head>
+<body>
+
+<h1>הדפסת מדבקות</h1>
+
+<label for="requesterName">שם המזמין:</label>
+<input type="text" id="requesterName" placeholder="השם שלך">
+
+<label for="search">חיפוש פריט:</label>
+<input type="text" id="search" placeholder="מקט, ברקוד או שם מוצר... (מחפש אוטומטית, אין צורך בכפתור)">
+<div id="results"></div>
+
+<div class="actions" id="actions">
+  <div id="typeChoice">
+    <p>לאיזה סוג מדבקה?</p>
+    <button onclick="selectType('bags')" id="bagsBtn">שקיות</button>
+    <button onclick="selectType('cartons')">קרטונים</button>
+    <div class="kosher-divider">
+      <p>הוספת תווית כשרות (בנוסף לתווית הרגילה):</p>
+      <button onclick="selectType('kosher_landa')">הוספת כשרות לנדא</button>
+      <button onclick="selectType('kosher_badatz')">הוספת כשרות בד"ץ</button>
+    </div>
+  </div>
+  <div id="qtyChoice" style="display:none">
+    <p>כמות מדבקות להדפסה:</p>
+    <input type="number" id="qty" min="1" value="1">
+    <div class="checkbox-row" id="skipDatesRow">
+      <input type="checkbox" id="skipDates">
+      <label for="skipDates" style="display:inline; font-weight:normal;">הדפס ללא תאריכים</label>
+    </div>
+    <button onclick="doPrint()">הדפס</button>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<script>
+// חייב להיות זהה בדיוק לערך PRINT_WEBHOOK_SECRET שבקובץ ה-.env של השרת המקומי
+const SECRET = "REDACTED";
+
+const WEBHOOK_URL = window.location.origin + "/webhook";
+const ITEMS_URL = window.location.origin + "/items";
+
+// מיפוי הבחירה בדף (bags/cartons/kosher_landa/kosher_badatz) לחוזה החדש -
+// templateKey ו-labelType של הכלי העצמאי (נפרד לגמרי מ-5 המפתחות הרשמיים
+// של JP Quality). תוויות הכשרות הן תוסף לתווית הקיימת, לא תחליף לה.
+const TEMPLATE_KEY_MAP = {
+  bags: "standalone_bags",
+  cartons: "standalone_cartons",
+  kosher_landa: "standalone_kosher_landa",
+  kosher_badatz: "standalone_kosher_badatz",
+};
+const LABEL_TYPE_MAP = {
+  bags: "package",
+  cartons: "carton",
+  kosher_landa: "kosher",
+  kosher_badatz: "kosher",
+};
+const TYPE_DISPLAY_NAME = {
+  bags: "שקיות",
+  cartons: "קרטונים",
+  kosher_landa: "כשרות לנדא",
+  kosher_badatz: "כשרות בד\"ץ",
+};
+// תוויות הכשרות הן גנריות (לוגו חברה + סמל כשרות קבועים בתבנית) -
+// אין להן שדה תאריכים, אז לא מציגים את התיבה "הדפס ללא תאריכים" עבורן.
+const KOSHER_TYPES = ["kosher_landa", "kosher_badatz"];
+
+let selectedItem = null;
+let selectedType = null;
+let searchTimer = null;
+
+document.getElementById("search").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  searchTimer = setTimeout(() => search(q), 300);
+});
+
+async function search(q) {
+  const resultsEl = document.getElementById("results");
+  if (q.length < 2) {
+    resultsEl.innerHTML = '<p class="hint-msg">הקלידו לפחות 2 תווים לחיפוש</p>';
+    return;
+  }
+
+  resultsEl.innerHTML = '<p class="hint-msg">מחפש...</p>';
+
+  try {
+    const res = await fetch(`${ITEMS_URL}?q=${encodeURIComponent(q)}`);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      resultsEl.innerHTML = `<p class="error-msg">שגיאת שרת: ${err.error || res.status}</p>`;
+      return;
+    }
+
+    const items = await res.json();
+
+    if (!Array.isArray(items) || items.length === 0) {
+      resultsEl.innerHTML = '<p class="hint-msg">לא נמצאו תוצאות</p>';
+      return;
+    }
+
+    resultsEl.innerHTML = "";
+    items.forEach(item => {
+      const div = document.createElement("div");
+      div.className = "result";
+      div.textContent = `${item.product} | מקט: ${item.sku} | ברקוד: ${item.barcode || "-"} | כשרות: ${item.kosher || "-"}`;
+      div.onclick = () => selectItem(item, div);
+      resultsEl.appendChild(div);
+    });
+  } catch (e) {
+    resultsEl.innerHTML = `<p class="error-msg">שגיאת רשת: ${e.message}</p>`;
+  }
+}
+
+function selectItem(item, el) {
+  document.querySelectorAll(".result").forEach(r => r.classList.remove("selected"));
+  el.classList.add("selected");
+  selectedItem = item;
+  selectedType = null;
+
+  document.getElementById("actions").classList.add("visible");
+  document.getElementById("qtyChoice").style.display = "none";
+  document.getElementById("status").textContent = "";
+  document.getElementById("skipDates").checked = false;
+
+  if (item.cartonsOnly) {
+    selectType("cartons");
+  } else {
+    document.getElementById("typeChoice").style.display = "block";
+  }
+}
+
+function selectType(type) {
+  selectedType = type;
+  document.getElementById("typeChoice").style.display = "none";
+  document.getElementById("qtyChoice").style.display = "block";
+  // תוויות כשרות הן תוסף גנרי בלי תאריכים - מסתירים את התיבה הזו עבורן
+  document.getElementById("skipDatesRow").style.display =
+    KOSHER_TYPES.includes(type) ? "none" : "flex";
+}
+
+async function hmacSha256Hex(message, secret) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function buildLabelData(item, labelType) {
+  // תוויות כשרות: רק פרטי מוצר + מק"ט (לוגו וסמל הכשרות כבר קבועים בתבנית עצמה)
+  if (KOSHER_TYPES.includes(labelType)) {
+    return { sku: item.sku, product: item.product };
+  }
+
+  const base = {
+    sku: item.sku,
+    product: item.product,
+    barcode: item.barcode,
+    kosher: item.kosher,
+    passover: item.passover
+  };
+  if (labelType === "bags") {
+    return { ...base, weight: item.weight };
+  } else {
+    return { ...base, packagesInfo: item.packagesInfo };
+  }
+}
+
+async function doPrint() {
+  const statusEl = document.getElementById("status");
+  const quantity = parseInt(document.getElementById("qty").value, 10);
+  const requestedBy = document.getElementById("requesterName").value.trim();
+  const skipDates = document.getElementById("skipDates").checked;
+
+  if (!requestedBy) {
+    statusEl.textContent = "נא למלא שם מזמין לפני ההדפסה.";
+    return;
+  }
+  if (!selectedItem || !selectedType || !quantity || quantity < 1) {
+    statusEl.textContent = "חסרים נתונים - בחרו פריט, סוג מדבקה וכמות תקינה.";
+    return;
+  }
+
+  const job = {
+    id: `${selectedItem.sku}-${Date.now()}`,
+    labelType: LABEL_TYPE_MAP[selectedType],
+    templateKey: TEMPLATE_KEY_MAP[selectedType],
+    quantity: quantity,
+    requestedBy: requestedBy,
+    skipDates: skipDates,
+    data: buildLabelData(selectedItem, selectedType)
+  };
+
+  const payload = JSON.stringify(job);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signedContent = `${timestamp}.${payload}`;
+
+  statusEl.textContent = "שולח להדפסה...";
+
+  try {
+    const signature = await hmacSha256Hex(signedContent, SECRET);
+    const res = await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Signature": signature,
+        "X-Timestamp": timestamp
+      },
+      body: payload
+    });
+
+    const result = await res.json().catch(() => ({}));
+
+    if (res.ok && result.status === "printed") {
+      statusEl.textContent = `נשלח בהצלחה: ${quantity} מדבקות (${TYPE_DISPLAY_NAME[selectedType] || selectedType}) - ${requestedBy}`;
+    } else if (result.status === "already_handled") {
+      statusEl.textContent = "עבודה זו כבר טופלה קודם.";
+    } else {
+      statusEl.textContent = "שגיאה: " + (result.message || result.errorCode || res.status);
+    }
+  } catch (e) {
+    statusEl.textContent = "שגיאת רשת: " + e.message;
+  }
+}
+</script>
+
+</body>
+</html>

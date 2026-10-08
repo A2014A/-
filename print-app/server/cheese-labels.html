@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>הדפסת תוויות גבינה — סבב לפי רשימת משקלים</title>
+<style>
+  :root {
+    --ink: #1c1c1c;
+    --paper: #fafaf8;
+    --line: #d8d5cc;
+    --accent: #2f5233;
+    --accent-soft: #e7efe8;
+    --warn: #b8860b;
+    --warn-soft: #fdf3d8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    margin: 0;
+    padding: 32px 24px 80px;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: #666;
+    margin: 0 0 28px;
+    font-size: 14px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 20px 22px;
+    max-width: 720px;
+    margin: 0 0 20px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  select, textarea, input[type=file], input[type=text] {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #fff;
+  }
+  textarea {
+    min-height: 140px;
+    font-family: "Consolas", monospace;
+    resize: vertical;
+  }
+  .tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .tab {
+    padding: 7px 16px;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    color: #555;
+  }
+  .tab.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .row { margin-bottom: 16px; }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 22px;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.primary:disabled {
+    background: #b7c2b8;
+    cursor: not-allowed;
+  }
+  button.ghost {
+    background: none;
+    border: 1px solid var(--line);
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 6px;
+  }
+  th, td {
+    text-align: right;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  th {
+    background: var(--accent-soft);
+    font-weight: 600;
+  }
+  tr.dup { background: var(--warn-soft); }
+  .dup-note {
+    font-size: 12px;
+    color: var(--warn);
+    margin: 10px 0 0;
+  }
+  .count-badge {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-inline-start: 8px;
+  }
+  .status {
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .status.error { color: #a33; }
+  .status.ok { color: var(--accent); }
+  #previewSection { display: none; }
+  .view-link {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 12px;
+  }
+  #lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox .box {
+    background: #fff;
+    border-radius: 6px;
+    padding: 16px;
+    max-width: 90vw;
+  }
+  #lightbox img {
+    max-width: 80vw;
+    max-height: 70vh;
+    display: block;
+  }
+  #lightbox .close {
+    text-align: left;
+    margin-top: 10px;
+  }
+  #lightbox button {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+  <h1>הדפסת תוויות גבינה</h1>
+  <p class="subtitle">הדפסת סבב תוויות שלם לפי רשימת משקלים — קרטון אחד לכל משקל ברשימה, ברקוד מחושב אוטומטית.</p>
+
+  <div class="card">
+    <div class="row">
+      <label for="skuSelect">מוצר</label>
+      <select id="skuSelect">
+        <option value="">טוען רשימת מוצרים...</option>
+      </select>
+      <div style="margin-top:6px;">
+        <span class="view-link" id="addProductToggle">+ הוסף מוצר חדש</span>
+      </div>
+    </div>
+
+    <div class="card" id="addProductForm" style="display:none; background:#fafaf6; box-shadow:none; margin:0 0 16px;">
+      <div class="row">
+        <label for="npSku">SKU / מק"ט (ייחודי)</label>
+        <input type="text" id="npSku">
+      </div>
+      <div class="row">
+        <label for="npEn">שם המוצר (אנגלית)</label>
+        <input type="text" id="npEn">
+      </div>
+      <div class="row">
+        <label for="npHe">שם המוצר (עברית)</label>
+        <input type="text" id="npHe">
+      </div>
+      <div class="row">
+        <label for="npCode">קוד פריט לברקוד (4 ספרות)</label>
+        <input type="text" id="npCode" maxlength="4" placeholder="8714">
+      </div>
+      <div class="row">
+        <label for="npKosher">כשרות (אופציונלי)</label>
+        <input type="text" id="npKosher">
+      </div>
+      <div class="row">
+        <label for="npPassover">פסח (אופציונלי)</label>
+        <input type="text" id="npPassover">
+      </div>
+      <div class="actions">
+        <button class="primary" id="saveProductBtn">שמור מוצר</button>
+        <button class="ghost" id="cancelProductBtn">ביטול</button>
+      </div>
+      <div id="addProductStatus" class="status"></div>
+    </div>
+
+
+    <div class="tabs">
+      <div class="tab active" data-tab="paste">הדבקת רשימה</div>
+      <div class="tab" data-tab="upload">העלאת קובץ Excel</div>
+    </div>
+
+    <div class="tab-panel active" data-panel="paste">
+      <div class="row">
+        <label for="weightsText">משקלים — שורה לכל קרטון. אופציונלי: מזהה ייחודי אחרי רווח (למשל "4.34 1219")</label>
+        <textarea id="weightsText" placeholder="4.34&#10;4.39 1220&#10;4.42&#10;4.37 1222"></textarea>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-panel="upload">
+      <div class="row">
+        <label for="weightsFile">קובץ Excel עם עמודת משקלים</label>
+        <input type="file" id="weightsFile" accept=".xlsx,.xls">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="previewBtn">הצג תצוגה מקדימה</button>
+    </div>
+    <div id="loadStatus" class="status"></div>
+  </div>
+
+  <div class="card" id="previewSection">
+    <div class="row">
+      <label for="batchNumberInput">Batch number</label>
+      <input type="text" id="batchNumberInput" placeholder="למשל 689098">
+    </div>
+    <div class="row">
+      <strong id="previewTitle"></strong><span class="count-badge" id="countBadge"></span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>משקל (ק"ג)</th><th>מזהה ייחודי</th><th>ברקוד מחושב</th><th>תווית</th></tr>
+      </thead>
+      <tbody id="previewBody"></tbody>
+    </table>
+    <p class="dup-note" id="dupNote" style="display:none;">
+      שורות מסומנות = כמה קרטונים באותו משקל בדיוק. זה תקין — כל שורה עדיין תודפס כתווית נפרדת.
+    </p>
+    <div class="actions">
+      <button class="primary" id="printBtn">הדפס <span id="printCount"></span> תוויות</button>
+      <button class="ghost" id="backBtn">חזרה לעריכה</button>
+    </div>
+    <div id="printStatus" class="status"></div>
+  </div>
+
+  <div id="lightbox">
+    <div class="box">
+      <img id="lightboxImg" src="" alt="תצוגת תווית">
+      <div class="close"><button id="lightboxClose">סגור</button></div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = ""; // same-origin Flask server
+
+let currentRows = [];
+let currentSku = "";
+
+// --- Load product dropdown ---
+function loadProducts() {
+  return fetch(`${API_BASE}/cheese-items`)
+    .then(r => r.json())
+    .then(items => {
+      const sel = document.getElementById("skuSelect");
+      sel.innerHTML = items.map(i =>
+        `<option value="${i.sku}">${i.productHe} (${i.sku})</option>`
+      ).join("");
+    })
+    .catch(() => {
+      document.getElementById("loadStatus").textContent = "שגיאה בטעינת רשימת המוצרים.";
+      document.getElementById("loadStatus").className = "status error";
+    });
+}
+loadProducts();
+
+// --- Add new product ---
+document.getElementById("addProductToggle").addEventListener("click", () => {
+  const form = document.getElementById("addProductForm");
+  form.style.display = form.style.display === "none" ? "block" : "none";
+});
+document.getElementById("cancelProductBtn").addEventListener("click", () => {
+  document.getElementById("addProductForm").style.display = "none";
+});
+document.getElementById("saveProductBtn").addEventListener("click", async () => {
+  const status = document.getElementById("addProductStatus");
+  const payload = {
+    sku: document.getElementById("npSku").value.trim(),
+    productEn: document.getElementById("npEn").value.trim(),
+    productHe: document.getElementById("npHe").value.trim(),
+    itemCode: document.getElementById("npCode").value.trim(),
+    kosher: document.getElementById("npKosher").value.trim(),
+    passover: document.getElementById("npPassover").value.trim(),
+  };
+  status.textContent = "שומר...";
+  status.className = "status";
+  try {
+    const res = await fetch(`${API_BASE}/cheese-items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "שגיאה בשמירה");
+    status.textContent = "המוצר נשמר.";
+    status.className = "status ok";
+    ["npSku","npEn","npHe","npCode","npKosher","npPassover"].forEach(id => document.getElementById(id).value = "");
+    await loadProducts();
+    document.getElementById("skuSelect").value = payload.sku;
+    setTimeout(() => { document.getElementById("addProductForm").style.display = "none"; status.textContent = ""; }, 1200);
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = "status error";
+  }
+});
+
+// --- Tabs ---
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.querySelector(`.tab-panel[data-panel="${tab.dataset.tab}"]`).classList.add("active");
+  });
+});
+
+function activeTab() {
+  return document.querySelector(".tab.active").dataset.tab;
+}
+
+// --- Preview ---
+document.getElementById("previewBtn").addEventListener("click", async () => {
+  const status = document.getElementById("loadStatus");
+  status.textContent = "";
+  const sku = document.getElementById("skuSelect").value;
+  if (!sku) {
+    status.textContent = "בחר מוצר קודם.";
+    status.className = "status error";
+    return;
+  }
+
+  try {
+    let data;
+    if (activeTab() === "paste") {
+      const weightsText = document.getElementById("weightsText").value;
+      const res = await fetch(`${API_BASE}/cheese-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku, weightsText }),
+      });
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+    } else {
+      const file = document.getElementById("weightsFile").files[0];
+      if (!file) { status.textContent = "בחר קובץ קודם."; status.className = "status error"; return; }
+      const form = new FormData();
+      form.append("sku", sku);
+      form.append("file", file);
+      const res = await fetch(`${API_BASE}/cheese-preview-upload`, { method: "POST", body: form });
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || "שגיאה");
+    }
+
+    currentRows = data.rows;
+    currentSku = sku;
+    renderPreview(data);
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = "status error";
+  }
+});
+
+function renderPreview(data) {
+  document.getElementById("previewTitle").textContent = data.productHe;
+  document.getElementById("countBadge").textContent = `${data.count} תוויות`;
+  document.getElementById("printCount").textContent = data.count;
+
+  const body = document.getElementById("previewBody");
+  body.innerHTML = data.rows.map(r => `
+    <tr class="${r.duplicate ? 'dup' : ''}">
+      <td>${r.index}</td>
+      <td>${r.weightKg.toFixed(2)}</td>
+      <td>${r.uniqueId || '-'}</td>
+      <td>${r.barcode}</td>
+      <td><span class="view-link" data-weight="${r.weightKg}" data-uid="${r.uniqueId || ''}">הצג תווית</span></td>
+    </tr>
+  `).join("");
+
+  const hasDup = data.rows.some(r => r.duplicate);
+  document.getElementById("dupNote").style.display = hasDup ? "block" : "none";
+
+  document.getElementById("previewSection").style.display = "block";
+  document.getElementById("printStatus").textContent = "";
+  document.getElementById("previewSection").scrollIntoView({ behavior: "smooth" });
+
+  // Wire up "הצג תווית" links — fetches the image only when clicked.
+  document.querySelectorAll(".view-link").forEach(link => {
+    link.addEventListener("click", () => {
+      const weight = link.dataset.weight;
+      const uid = link.dataset.uid;
+      const url = `${API_BASE}/cheese-label-image?sku=${encodeURIComponent(currentSku)}&weight=${encodeURIComponent(weight)}&cheeseNo=${encodeURIComponent(uid)}`;
+      document.getElementById("lightboxImg").src = url;
+      document.getElementById("lightbox").classList.add("open");
+    });
+  });
+}
+
+document.getElementById("lightboxClose").addEventListener("click", () => {
+  document.getElementById("lightbox").classList.remove("open");
+});
+document.getElementById("lightbox").addEventListener("click", (e) => {
+  if (e.target.id === "lightbox") document.getElementById("lightbox").classList.remove("open");
+});
+
+document.getElementById("backBtn").addEventListener("click", () => {
+  document.getElementById("previewSection").style.display = "none";
+});
+
+// --- Print ---
+document.getElementById("printBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("printBtn");
+  const status = document.getElementById("printStatus");
+  btn.disabled = true;
+  status.textContent = "מדפיס...";
+  status.className = "status";
+
+  try {
+    const res = await fetch(`${API_BASE}/print-cheese-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sku: currentSku,
+        batchNumber: document.getElementById("batchNumberInput").value.trim(),
+        rows: currentRows.map(r => ({ weightKg: r.weightKg, uniqueId: r.uniqueId || "" })),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "שגיאה בהדפסה");
+    status.textContent = `הודפסו ${data.printed} תוויות בהצלחה.`;
+    status.className = "status ok";
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = "status error";
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
