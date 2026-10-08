@@ -192,6 +192,10 @@
 
   <div class="card">
     <div class="row">
+      <label for="apiKey">מפתח גישה</label>
+      <input type="password" id="apiKey" placeholder="מפתח שקיבלת מהמנהל (נשמר בדפדפן הזה)" autocomplete="off">
+    </div>
+    <div class="row">
       <label for="skuSelect">מוצר</label>
       <select id="skuSelect">
         <option value="">טוען רשימת מוצרים...</option>
@@ -293,21 +297,42 @@
 <script>
 const API_BASE = ""; // same-origin Flask server
 
+// Every API call needs the user's personal access key (X-Api-Key), entered
+// once and remembered in this browser. See api_keys.py on the server.
+const API_KEY_STORAGE = "cheeseApiKey";
+const apiKeyInput = document.getElementById("apiKey");
+try { apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE) || ""; } catch (e) {}
+apiKeyInput.addEventListener("change", () => {
+  try { localStorage.setItem(API_KEY_STORAGE, apiKeyInput.value.trim()); } catch (e) {}
+  loadProducts();
+});
+const BAD_KEY_MSG = "מפתח הגישה חסר או שגוי - בדקו את השדה \"מפתח גישה\".";
+
+function apiFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}), "X-Api-Key": apiKeyInput.value.trim() };
+  return fetch(url, { ...options, headers }).then(res => {
+    if (res.status === 401) throw new Error(BAD_KEY_MSG);
+    return res;
+  });
+}
+
 let currentRows = [];
 let currentSku = "";
 
 // --- Load product dropdown ---
 function loadProducts() {
-  return fetch(`${API_BASE}/cheese-items`)
+  return apiFetch(`${API_BASE}/cheese-items`)
     .then(r => r.json())
     .then(items => {
+      document.getElementById("loadStatus").textContent = "";
       const sel = document.getElementById("skuSelect");
       sel.innerHTML = items.map(i =>
         `<option value="${i.sku}">${i.productHe} (${i.sku})</option>`
       ).join("");
     })
-    .catch(() => {
-      document.getElementById("loadStatus").textContent = "שגיאה בטעינת רשימת המוצרים.";
+    .catch((err) => {
+      document.getElementById("loadStatus").textContent =
+        err.message === BAD_KEY_MSG ? BAD_KEY_MSG : "שגיאה בטעינת רשימת המוצרים.";
       document.getElementById("loadStatus").className = "status error";
     });
 }
@@ -334,7 +359,7 @@ document.getElementById("saveProductBtn").addEventListener("click", async () => 
   status.textContent = "שומר...";
   status.className = "status";
   try {
-    const res = await fetch(`${API_BASE}/cheese-items`, {
+    const res = await apiFetch(`${API_BASE}/cheese-items`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -382,7 +407,7 @@ document.getElementById("previewBtn").addEventListener("click", async () => {
     let data;
     if (activeTab() === "paste") {
       const weightsText = document.getElementById("weightsText").value;
-      const res = await fetch(`${API_BASE}/cheese-preview`, {
+      const res = await apiFetch(`${API_BASE}/cheese-preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sku, weightsText }),
@@ -395,7 +420,7 @@ document.getElementById("previewBtn").addEventListener("click", async () => {
       const form = new FormData();
       form.append("sku", sku);
       form.append("file", file);
-      const res = await fetch(`${API_BASE}/cheese-preview-upload`, { method: "POST", body: form });
+      const res = await apiFetch(`${API_BASE}/cheese-preview-upload`, { method: "POST", body: form });
       data = await res.json();
       if (!res.ok) throw new Error(data.error || "שגיאה");
     }
@@ -438,8 +463,21 @@ function renderPreview(data) {
       const weight = link.dataset.weight;
       const uid = link.dataset.uid;
       const url = `${API_BASE}/cheese-label-image?sku=${encodeURIComponent(currentSku)}&weight=${encodeURIComponent(weight)}&cheeseNo=${encodeURIComponent(uid)}`;
-      document.getElementById("lightboxImg").src = url;
-      document.getElementById("lightbox").classList.add("open");
+      // <img src> can't send the X-Api-Key header, so fetch the PNG and
+      // show it from a local blob URL instead.
+      apiFetch(url)
+        .then(res => { if (!res.ok) throw new Error("שגיאה בטעינת התווית"); return res.blob(); })
+        .then(blob => {
+          const img = document.getElementById("lightboxImg");
+          if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+          img.src = URL.createObjectURL(blob);
+          document.getElementById("lightbox").classList.add("open");
+        })
+        .catch(err => {
+          const status = document.getElementById("printStatus");
+          status.textContent = err.message;
+          status.className = "status error";
+        });
     });
   });
 }
@@ -464,7 +502,7 @@ document.getElementById("printBtn").addEventListener("click", async () => {
   status.className = "status";
 
   try {
-    const res = await fetch(`${API_BASE}/print-cheese-batch`, {
+    const res = await apiFetch(`${API_BASE}/print-cheese-batch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

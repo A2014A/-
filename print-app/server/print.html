@@ -26,6 +26,9 @@
 
 <h1>הדפסת מדבקות</h1>
 
+<label for="apiKey">מפתח גישה:</label>
+<input type="password" id="apiKey" placeholder="מפתח שקיבלת מהמנהל (נשמר בדפדפן הזה)" autocomplete="off">
+
 <label for="requesterName">שם המזמין:</label>
 <input type="text" id="requesterName" placeholder="השם שלך">
 
@@ -58,8 +61,16 @@
 <div id="status"></div>
 
 <script>
-// חייב להיות זהה בדיוק לערך PRINT_WEBHOOK_SECRET שבקובץ ה-.env של השרת המקומי
-const SECRET = "REDACTED";
+// אין כאן יותר סוד HMAC. כל משתמש מזין פעם אחת מפתח גישה אישי (מתוך
+// API_KEYS בקובץ ה-.env של השרת), והוא נשמר בדפדפן ונשלח בכותרת X-Api-Key.
+const API_KEY_STORAGE = "printApiKey";
+const apiKeyInput = document.getElementById("apiKey");
+try { apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE) || ""; } catch (e) {}
+apiKeyInput.addEventListener("change", () => {
+  try { localStorage.setItem(API_KEY_STORAGE, apiKeyInput.value.trim()); } catch (e) {}
+});
+function apiKey() { return apiKeyInput.value.trim(); }
+const BAD_KEY_MSG = "מפתח הגישה חסר או שגוי - בדקו את השדה \"מפתח גישה\".";
 
 const WEBHOOK_URL = window.location.origin + "/webhook";
 const ITEMS_URL = window.location.origin + "/items";
@@ -109,8 +120,14 @@ async function search(q) {
   resultsEl.innerHTML = '<p class="hint-msg">מחפש...</p>';
 
   try {
-    const res = await fetch(`${ITEMS_URL}?q=${encodeURIComponent(q)}`);
+    const res = await fetch(`${ITEMS_URL}?q=${encodeURIComponent(q)}`, {
+      headers: { "X-Api-Key": apiKey() }
+    });
 
+    if (res.status === 401) {
+      resultsEl.innerHTML = `<p class="error-msg">${BAD_KEY_MSG}</p>`;
+      return;
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       resultsEl.innerHTML = `<p class="error-msg">שגיאת שרת: ${err.error || res.status}</p>`;
@@ -164,17 +181,6 @@ function selectType(type) {
     KOSHER_TYPES.includes(type) ? "none" : "flex";
 }
 
-async function hmacSha256Hex(message, secret) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false, ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 function buildLabelData(item, labelType) {
   // תוויות כשרות: רק פרטי מוצר + מק"ט (לוגו וסמל הכשרות כבר קבועים בתבנית עצמה)
   if (KOSHER_TYPES.includes(labelType)) {
@@ -221,26 +227,24 @@ async function doPrint() {
   };
 
   const payload = JSON.stringify(job);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signedContent = `${timestamp}.${payload}`;
 
   statusEl.textContent = "שולח להדפסה...";
 
   try {
-    const signature = await hmacSha256Hex(signedContent, SECRET);
     const res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Signature": signature,
-        "X-Timestamp": timestamp
+        "X-Api-Key": apiKey()
       },
       body: payload
     });
 
     const result = await res.json().catch(() => ({}));
 
-    if (res.ok && result.status === "printed") {
+    if (res.status === 401) {
+      statusEl.textContent = BAD_KEY_MSG;
+    } else if (res.ok && result.status === "printed") {
       statusEl.textContent = `נשלח בהצלחה: ${quantity} מדבקות (${TYPE_DISPLAY_NAME[selectedType] || selectedType}) - ${requestedBy}`;
     } else if (result.status === "already_handled") {
       statusEl.textContent = "עבודה זו כבר טופלה קודם.";

@@ -16,6 +16,11 @@
 #  4) GET  /items         - חיפוש פריטים בקובץ האקסל (לכלי העצמאי בלבד).
 #  וגם מגיש את print.html בכתובת הראשית "/".
 #
+# אימות:
+#  - /items דורש מפתח גישה תקין בכותרת X-Api-Key (ראו api_keys.py).
+#  - /webhook מקבל בקשה אם יש לה חתימת HMAC תקינה (JP Quality, ללא שינוי),
+#    או מפתח גישה תקין (print.html והאפליקציה). בלי אף אחד מהם -> 401.
+#
 # דורש: pip install flask pywin32 python-dotenv pandas openpyxl python-dateutil
 
 from flask import Flask, request, jsonify, send_from_directory
@@ -24,12 +29,16 @@ from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 import win32com.client, pythoncom, hmac, hashlib, logging, os, pathlib, re, time, sqlite3, pandas as pd
 
+from api_keys import load_api_keys, check_api_key
+
 load_dotenv()
 app = Flask(__name__)
 SECRET = os.environ["PRINT_WEBHOOK_SECRET"]
 BASE_DIR = pathlib.Path(__file__).parent
 
 logging.basicConfig(filename="print_log.txt", level=logging.INFO)
+
+API_KEYS = load_api_keys()
 
 # ---------------------------------------------------------------
 # הגדרות שצריך להתאים אצלכם
@@ -263,6 +272,9 @@ def index():
 
 @app.route("/items")
 def search_items():
+    if not check_api_key(request, API_KEYS):
+        return jsonify({"error": "מפתח גישה חסר או שגוי", "errorCode": "INVALID_API_KEY"}), 401
+
     query = request.args.get("q", "").strip().lower()
     if len(query) < 2:
         return jsonify([])
@@ -362,11 +374,17 @@ def webhook():
         if not job_id:
             return make_response("error", "", "מזהה עבודה (id) חסר", "MISSING_ID", 400)
 
-        if not is_timestamp_fresh(timestamp):
-            return make_response("error", job_id, "חותמת זמן חסרה או ישנה מדי", "STALE_TIMESTAMP", 401)
+        # מפתח גישה תקין (print.html / האפליקציה) מספיק לבדו. בלעדיו - בודקים
+        # חתימת HMAC בדיוק כמו קודם, כך ש-JP Quality ממשיכה לעבוד בלי שינוי.
+        key_owner = check_api_key(request, API_KEYS)
+        if key_owner:
+            logging.info(f"job {job_id} התקבל עם מפתח גישה של '{key_owner}'")
+        else:
+            if not is_timestamp_fresh(timestamp):
+                return make_response("error", job_id, "חותמת זמן חסרה או ישנה מדי", "STALE_TIMESTAMP", 401)
 
-        if not verify_signature(request.data, timestamp, signature):
-            return make_response("error", job_id, "חתימה לא תקינה", "INVALID_SIGNATURE", 401)
+            if not verify_signature(request.data, timestamp, signature):
+                return make_response("error", job_id, "חתימה לא תקינה", "INVALID_SIGNATURE", 401)
 
         # מניעת הדפסה כפולה - בדיקה ביומן הקבוע לפי מזהה
         existing = get_job(job_id)
