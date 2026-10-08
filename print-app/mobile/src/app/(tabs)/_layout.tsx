@@ -1,6 +1,7 @@
 import { Redirect, router } from "expo-router";
 import { Tabs } from "expo-router/tabs";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors } from "../../components/ui";
 import { useSettings } from "../../lib/settings";
@@ -25,6 +26,9 @@ function SettingsButton() {
 
 export default function TabsLayout() {
   const { loaded, isConfigured } = useSettings();
+  // באנדרואיד האפליקציה נפרסת עד קצה המסך - מרווח תחתון בגובה כפתורי הניווט של
+  // הטלפון, כדי ששורת הלשוניות לא תוסתר מתחתיהם
+  const insets = useSafeAreaInsets();
 
   if (!loaded) {
     return (
@@ -47,7 +51,7 @@ export default function TabsLayout() {
         headerRight: () => <SettingsButton />,
         tabBarActiveTintColor: colors.accent,
         tabBarLabelStyle: { fontSize: 14, fontWeight: "700" },
-        tabBarStyle: { height: 64, paddingTop: 6 },
+        tabBarStyle: { height: 64 + insets.bottom, paddingTop: 6, paddingBottom: insets.bottom + 6 },
       }}
     >
       <Tabs.Screen
