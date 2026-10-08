@@ -18,7 +18,7 @@ import {
 
 import {
   addCheeseItem,
-  labelImageUrl,
+  fetchLabelImage,
   listCheeseItems,
   previewFromExcel,
   previewFromText,
@@ -76,9 +76,11 @@ export default function CheeseScreen() {
   const [printMsg, setPrintMsg] = useState<Msg>(null);
 
   // --- תצוגת תווית ---
-  const [labelUrl, setLabelUrl] = useState<string | null>(null);
+  const [labelOpen, setLabelOpen] = useState(false);
+  const [labelData, setLabelData] = useState<string | null>(null); // data:image/png;base64,...
   const [labelLoading, setLabelLoading] = useState(false);
-  const [labelError, setLabelError] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
+  const labelSeq = useRef(0);
 
   const loadItems = useCallback(async () => {
     setItemsLoading(true);
@@ -233,11 +235,29 @@ export default function CheeseScreen() {
     ]);
   };
 
-  const openLabel = (weightKg: number, uniqueId: string) => {
+  const openLabel = async (weightKg: number, uniqueId: string) => {
     if (!preview) return;
-    setLabelError(false);
+    const seq = ++labelSeq.current;
+    setLabelOpen(true);
+    setLabelData(null);
+    setLabelError(null);
     setLabelLoading(true);
-    setLabelUrl(labelImageUrl(base, preview.sku, weightKg, uniqueId));
+    try {
+      const data = await fetchLabelImage(base, key, preview.sku, weightKg, uniqueId);
+      if (seq === labelSeq.current) setLabelData(data);
+    } catch (e) {
+      if (seq === labelSeq.current) setLabelError(userMessage(e));
+    } finally {
+      if (seq === labelSeq.current) setLabelLoading(false);
+    }
+  };
+
+  const closeLabel = () => {
+    labelSeq.current++;
+    setLabelOpen(false);
+    setLabelData(null);
+    setLabelError(null);
+    setLabelLoading(false);
   };
 
   const hasDup = preview?.rows.some((r) => r.duplicate) ?? false;
@@ -428,26 +448,16 @@ export default function CheeseScreen() {
       </ScrollView>
 
       {/* ---------- תווית במסך מלא ---------- */}
-      <Modal visible={!!labelUrl} animationType="fade" onRequestClose={() => setLabelUrl(null)} transparent>
+      <Modal visible={labelOpen} animationType="fade" onRequestClose={closeLabel} transparent>
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", padding: 16, gap: 16 }}>
-          {labelUrl ? (
-            <View style={{ backgroundColor: "#fff", borderRadius: 8, aspectRatio: 900 / 400, width: "100%", justifyContent: "center" }}>
-              <Image
-                // התמונה דורשת מפתח גישה, ולכן נטענת עם הכותרת X-Api-Key
-                source={{ uri: labelUrl, headers: { "X-Api-Key": key } }}
-                style={{ width: "100%", height: "100%" }}
-                resizeMode="contain"
-                onLoadEnd={() => setLabelLoading(false)}
-                onError={() => {
-                  setLabelLoading(false);
-                  setLabelError(true);
-                }}
-              />
-              {labelLoading ? <ActivityIndicator style={{ position: "absolute", alignSelf: "center" }} color={colors.accent} size="large" /> : null}
-            </View>
-          ) : null}
-          {labelError ? <Banner kind="error" text="לא ניתן לטעון את התווית. בדוק חיבור ומפתח גישה." /> : null}
-          <Button title="סגור" variant="ghost" onPress={() => setLabelUrl(null)} />
+          <View style={{ backgroundColor: "#fff", borderRadius: 8, aspectRatio: 900 / 400, width: "100%", justifyContent: "center" }}>
+            {labelData ? (
+              <Image source={{ uri: labelData }} style={{ width: "100%", height: "100%" }} resizeMode="contain" />
+            ) : null}
+            {labelLoading ? <ActivityIndicator style={{ position: "absolute", alignSelf: "center" }} color={colors.accent} size="large" /> : null}
+          </View>
+          {labelError ? <Banner kind="error" text={labelError} /> : null}
+          <Button title="סגור" variant="ghost" onPress={closeLabel} />
         </View>
       </Modal>
     </KeyboardAvoidingView>

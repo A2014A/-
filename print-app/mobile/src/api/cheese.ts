@@ -1,7 +1,7 @@
 // שרת הגבינות (cheese_app.py + cheese_labels_routes.py).
 // מבנה הבקשות והתשובות זהה ל-cheese-labels.html ול-cheese_labels_routes.py.
 
-import { ApiError, joinUrl, request, serverErrorMessage } from "./http";
+import { ApiError, BAD_KEY_MSG, NO_CONNECTION_MSG, REQUEST_TIMEOUT_MS, joinUrl, request, serverErrorMessage } from "./http";
 
 /** GET /cheese-items מחזיר רק את שלושת השדות האלה. */
 export type CheeseItem = {
@@ -95,6 +95,44 @@ export async function previewFromExcel(baseUrl: string, apiKey: string, sku: str
     form,
   });
   return ensureOk(status, body);
+}
+
+/**
+ * טוען את תמונת התווית עם fetch + X-Api-Key ומחזיר data:image/png;base64,...
+ * (לא סומכים על headers של <Image>, שלא תמיד נשלחים באנדרואיד).
+ * בשגיאה - ApiError שההודעה שלה כוללת את קוד הסטטוס מהשרת.
+ */
+export async function fetchLabelImage(baseUrl: string, apiKey: string, sku: string, weightKg: number, cheeseNo: string): Promise<string> {
+  const url = labelImageUrl(baseUrl, sku, weightKg, cheeseNo);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { "X-Api-Key": apiKey }, signal: controller.signal });
+  } catch {
+    throw new ApiError(controller.signal.aborted ? "timeout" : "no_connection", NO_CONNECTION_MSG);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 401) throw new ApiError("bad_key", `${BAD_KEY_MSG} (קוד 401)`, 401);
+  const type = res.headers.get("content-type") || "";
+  if (!res.ok || !type.startsWith("image/")) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = serverErrorMessage(body, res.status);
+    } catch {
+      detail = "";
+    }
+    throw new ApiError("server", `שגיאה בטעינת התווית (קוד ${res.status})${detail ? ": " + detail : ""}`, res.status);
+  }
+  const blob = await res.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("read")));
+    reader.onerror = () => reject(new Error("read"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 /** כתובת תמונת ה-PNG של תווית. צריך לטעון אותה עם הכותרת X-Api-Key. */
