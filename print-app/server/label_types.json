@@ -28,7 +28,8 @@
     "headerTemplate": null,
     "fields": ["sku", "product"],
     "dates": false,
-    "group": "תוויות כשרות"
+    "group": "תוויות כשרות",
+    "allowedUsers": ["yehuda", "office1", "office2"]
   },
   {
     "key": "kosher_badatz",
@@ -39,7 +40,8 @@
     "headerTemplate": null,
     "fields": ["sku", "product"],
     "dates": false,
-    "group": "תוויות כשרות"
+    "group": "תוויות כשרות",
+    "allowedUsers": ["yehuda", "office1", "office2"]
   },
   {
     "key": "pesach_landa_chatam_sofer",
@@ -51,7 +53,8 @@
     "fields": ["sku", "product"],
     "dates": false,
     "group": "מדבקות לפסח",
-    "enabled": false
+    "enabled": false,
+    "allowedUsers": ["yehuda", "office1", "office2"]
   },
   {
     "key": "pesach_landa_beit_yosef",
@@ -63,7 +66,8 @@
     "fields": ["sku", "product"],
     "dates": false,
     "group": "מדבקות לפסח",
-    "enabled": false
+    "enabled": false,
+    "allowedUsers": ["yehuda", "office1", "office2"]
   },
   {
     "key": "pesach_landa_beit_yosef_kitniyot",
@@ -75,6 +79,7 @@
     "fields": ["sku", "product"],
     "dates": false,
     "group": "מדבקות לפסח",
-    "enabled": false
+    "enabled": false,
+    "allowedUsers": ["yehuda", "office1", "office2"]
   }
 ]
