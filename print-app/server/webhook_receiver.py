@@ -240,7 +240,9 @@ def lookup_item_by_sku(sku: str):
     return match.iloc[0] if not match.empty else None
 
 
-def print_header_label(bt, header_path, requested_by, product, quantity):
+def print_header_label(bt, header_path, requested_by, product, quantity, optional_fields=None):
+    """optional_fields - שדות נוספים שממלאים רק אם הם קיימים בתבנית הכותרת.
+    שדה חסר נרשם כאזהרה בלבד ולא מפיל את ההדפסה (בניגוד לשדות החובה)."""
     if not header_path or not requested_by:
         return
     header_fmt = bt.Formats.Open(header_path, False, "")
@@ -256,6 +258,11 @@ def print_header_label(bt, header_path, requested_by, product, quantity):
                 header_fmt.SetNamedSubStringValue(fname, fvalue)
             except Exception as e:
                 raise Exception(f"שדה '{fname}' לא נמצא בקובץ הכותרת {header_path}: {e}")
+        for fname, fvalue in (optional_fields or {}).items():
+            try:
+                header_fmt.SetNamedSubStringValue(fname, fvalue)
+            except Exception as e:
+                logging.warning(f"שדה '{fname}' לא נמצא בקובץ הכותרת {header_path} - מדלגים: {e}")
         header_fmt.PrintOut(False, False)
     finally:
         header_fmt.Close(2)
@@ -442,7 +449,9 @@ def webhook():
         try:
             bt = win32com.client.Dispatch("BarTender.Application")
 
-            print_header_label(bt, HEADER_TEMPLATES.get(template_key), requested_by, data.get("product", ""), quantity)
+            # מק"ט על תווית הכותרת - רק לתוויות הכלי העצמאי. תבניות JP Quality לא משתנות.
+            header_optional = {"sku": data.get("sku", "")} if template_key in STANDALONE_TEMPLATE_KEYS else None
+            print_header_label(bt, HEADER_TEMPLATES.get(template_key), requested_by, data.get("product", ""), quantity, header_optional)
 
             fmt = bt.Formats.Open(template_path, False, "")
             try:
