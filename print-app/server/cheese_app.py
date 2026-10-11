@@ -29,6 +29,7 @@ from flask import Flask, g, jsonify, request, send_from_directory
 
 from api_keys import load_api_keys, check_api_key
 from cheese_labels_routes import cheese_bp, load_cheese_items
+from cheese_ocr import cheese_ocr_bp
 from history_db import ensure_history_columns, record_job
 
 load_dotenv()
@@ -37,6 +38,7 @@ API_KEYS = load_api_keys()
 
 app = Flask(__name__)
 app.register_blueprint(cheese_bp)
+app.register_blueprint(cheese_ocr_bp)  # זיהוי משקלים מתמונה (POST /cheese-ocr)
 
 try:
     ensure_history_columns()

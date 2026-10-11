@@ -1,12 +1,13 @@
 {
   "name": "cohen-print",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "expo-router/entry",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.27",
     "expo-constants": "~57.0.21",
     "expo-document-picker": "~57.0.3",
+    "expo-image-picker": "~57.0.20",
     "expo-linking": "~57.0.12",
     "expo-localization": "~57.0.2",
     "expo-router": "~57.0.25",

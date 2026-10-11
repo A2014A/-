@@ -2,7 +2,7 @@
   "expo": {
     "name": "הדפסת מדבקות",
     "slug": "cohen-print",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -27,7 +27,15 @@
       "expo-router",
       "expo-localization",
       "expo-secure-store",
-      "expo-updates"
+      "expo-updates",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "האפליקציה משתמשת במצלמה כדי לצלם קרטוני גבינה ולזהות את המשקל.",
+          "photosPermission": "האפליקציה בוחרת תמונות של קרטוני גבינה כדי לזהות את המשקל.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "extra": {
       "supportsRTL": true,

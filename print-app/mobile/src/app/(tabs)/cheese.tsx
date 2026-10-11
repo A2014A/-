@@ -1,6 +1,7 @@
 // לשונית "גבינות" - מקבילה ל-cheese-labels.html.
 
 import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -18,14 +19,18 @@ import {
 
 import {
   addCheeseItem,
+  checkWeightLines,
   fetchLabelImage,
   listCheeseItems,
+  mergeOcrCartons,
   previewFromExcel,
   previewFromText,
   printCheeseBatch,
+  recognizeCartons,
   rowsToWeightsText,
   type CheeseItem,
   type NewCheeseItem,
+  type Photo,
   type PickedFile,
   type PreviewResponse,
 } from "../../api/cheese";
@@ -62,15 +67,30 @@ export default function CheeseScreen() {
   const [addMsg, setAddMsg] = useState<Msg>(null);
 
   // --- משקלים ---
-  const [mode, setMode] = useState<"paste" | "excel">("paste");
-  const [weightsText, setWeightsText] = useState("");
+  const [mode, setMode] = useState<"paste" | "excel" | "photo">("paste");
+  const [weightsText, setWeightsTextState] = useState("");
+  // הזיהוי מתמונות רץ ברקע ומוסיף לרשימה, גם בזמן שהמשתמש עורך אותה - לכן גם ref
+  const weightsRef = useRef("");
+  const setWeightsText = useCallback((t: string) => {
+    weightsRef.current = t;
+    setWeightsTextState(t);
+  }, []);
   const [file, setFile] = useState<PickedFile | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewMsg, setPreviewMsg] = useState<Msg>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
 
+  // --- צילום קרטונים ---
+  const photoQueue = useRef<Photo[]>([]);
+  const ocrRunning = useRef(false);
+  const [ocrProgress, setOcrProgress] = useState<{ done: number; total: number } | null>(null);
+  const [ocrNotes, setOcrNotes] = useState<string[]>([]);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+
   // --- הדפסה ---
   const [batchNumber, setBatchNumber] = useState("");
+  const batchRef = useRef(batchNumber);
+  batchRef.current = batchNumber;
   const [printing, setPrinting] = useState(false);
   const printingRef = useRef(false);
   const [printMsg, setPrintMsg] = useState<Msg>(null);
@@ -110,7 +130,7 @@ export default function CheeseScreen() {
         setPrintMsg(null);
         setPreviewMsg({ kind: "info", text: "הטופס מולא מההיסטוריה. לחץ \"תצוגה מקדימה\" ובדוק לפני הדפסה." });
       }
-    }, [loadItems, takeRefill]),
+    }, [loadItems, takeRefill, setWeightsText]),
   );
 
   const selectedItem = items.find((i) => i.sku === sku) ?? null;
@@ -171,13 +191,102 @@ export default function CheeseScreen() {
     }
   };
 
+  // מעבד את התמונות אחת אחרי השנייה; אפשר להמשיך לצלם בזמן שהקודמות בזיהוי.
+  const runOcrQueue = async () => {
+    if (ocrRunning.current) return;
+    ocrRunning.current = true;
+    let done = 0;
+    try {
+      while (photoQueue.current.length) {
+        const photo = photoQueue.current.shift()!;
+        setOcrProgress({ done, total: done + photoQueue.current.length + 1 });
+        try {
+          const res = await recognizeCartons(base, key, photo);
+          const merged = mergeOcrCartons(weightsRef.current, res.cartons);
+          const notes = [...merged.notes];
+          if (!res.cartons.length) notes.push(`בתמונה ${done + 1} לא זוהו קרטונים – צלם שוב, קרוב יותר.`);
+          if (res.batchNumber && !batchRef.current.trim()) {
+            batchRef.current = res.batchNumber;
+            setBatchNumber(res.batchNumber);
+            notes.push(`מספר אצווה זוהה: ${res.batchNumber} (בדוק לפני הדפסה).`);
+          }
+          setWeightsText(merged.text);
+          setPreview(null);
+          setPrintMsg(null);
+          setOcrNotes((n) => [...n, ...notes]);
+        } catch (e) {
+          const msg =
+            e instanceof ApiError && e.kind === "timeout" ? "הזיהוי לקח יותר מדי זמן. נסה שוב." : userMessage(e);
+          setOcrError(`תמונה ${done + 1}: ${msg}`);
+        }
+        done++;
+      }
+    } finally {
+      ocrRunning.current = false;
+      setOcrProgress(null);
+    }
+  };
+
+  const addPhotos = (assets: ImagePicker.ImagePickerAsset[]) => {
+    photoQueue.current.push(...assets.map((a) => ({ uri: a.uri, mimeType: a.mimeType, fileName: a.fileName })));
+    setOcrError(null);
+    runOcrQueue();
+  };
+
+  const takePhoto = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setOcrError("אין הרשאה למצלמה. אפשר לאשר בהגדרות הטלפון ← אפליקציות ← הדפסת מדבקות ← הרשאות.");
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
+      if (res.canceled || !res.assets?.length) return;
+      addPhotos(res.assets);
+    } catch {
+      setOcrError("לא ניתן לפתוח את המצלמה.");
+    }
+  };
+
+  const pickPhotos = async () => {
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.7,
+        allowsMultipleSelection: true,
+        selectionLimit: 30,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      addPhotos(res.assets);
+    } catch {
+      setOcrError("לא ניתן לפתוח את הגלריה.");
+    }
+  };
+
+  const clearPhotoList = () =>
+    Alert.alert("ניקוי רשימה", "למחוק את כל המשקלים שברשימה?", [
+      { text: "ביטול", style: "cancel" },
+      {
+        text: "מחק",
+        style: "destructive",
+        onPress: () => {
+          setWeightsText("");
+          setOcrNotes([]);
+          setOcrError(null);
+          invalidatePreview();
+        },
+      },
+    ]);
+
+  const listWarnings = mode === "photo" ? checkWeightLines(weightsText) : [];
+
   const onPreview = async () => {
     if (!sku) {
       setPreviewMsg({ kind: "error", text: "בחר מוצר קודם." });
       return;
     }
-    if (mode === "paste" && !weightsText.trim()) {
-      setPreviewMsg({ kind: "error", text: "הדבק רשימת משקלים קודם." });
+    if (mode !== "excel" && !weightsText.trim()) {
+      setPreviewMsg({ kind: "error", text: mode === "photo" ? "צלם קרטונים קודם." : "הדבק רשימת משקלים קודם." });
       return;
     }
     if (mode === "excel" && !file) {
@@ -189,7 +298,7 @@ export default function CheeseScreen() {
     invalidatePreview();
     try {
       const data =
-        mode === "paste" ? await previewFromText(base, key, sku, weightsText) : await previewFromExcel(base, key, sku, file!);
+        mode !== "excel" ? await previewFromText(base, key, sku, weightsText) : await previewFromExcel(base, key, sku, file!);
       setPreview(data);
     } catch (e) {
       setPreviewMsg({ kind: "error", text: userMessage(e) });
@@ -375,8 +484,53 @@ export default function CheeseScreen() {
               style={{ flex: 1 }}
             />
           </View>
+          <Button
+            title="📷 צילום קרטונים"
+            variant="ghost"
+            selected={mode === "photo"}
+            onPress={() => {
+              setMode("photo");
+              invalidatePreview();
+            }}
+          />
 
-          {mode === "paste" ? (
+          {mode === "photo" ? (
+            <>
+              <Hint>
+                כתוב בטוש מספר על כל קרטון (1, 2, 3...) וצלם כך שהמדבקה והמספר נראים בבירור. אפשר כמה קרטונים בתמונה. המשקלים
+                שזוהו נוספים לרשימה למטה - בדוק אותם מול הקרטונים לפני הדפסה.
+              </Hint>
+              <View style={styles.row}>
+                <Button title="📷 צלם" onPress={takePhoto} style={{ flex: 1 }} />
+                <Button title="🖼️ מהגלריה" variant="ghost" onPress={pickPhotos} style={{ flex: 1 }} />
+              </View>
+              {ocrProgress ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <ActivityIndicator color={colors.accent} />
+                  <Text style={styles.body}>
+                    מזהה תמונה {ocrProgress.done + 1} מתוך {ocrProgress.total}... (אפשר להמשיך לצלם)
+                  </Text>
+                </View>
+              ) : null}
+              {ocrError ? <Banner kind="error" text={ocrError} /> : null}
+              {ocrNotes.length ? <Banner kind="info" text={ocrNotes.join("\n")} /> : null}
+              {listWarnings.length ? <Banner kind="error" text={listWarnings.join("\n")} /> : null}
+              <Label>{`רשימה (${weightsText.trim() ? weightsText.trim().split(/\n+/).length : 0} קרטונים) - משקל ואחריו מספר קרטון`}</Label>
+              <Field
+                value={weightsText}
+                onChangeText={(t) => {
+                  setWeightsText(t);
+                  invalidatePreview();
+                }}
+                multiline
+                placeholder={"4.74 1\n3.286 2"}
+                keyboardType={Platform.OS === "ios" ? "default" : "visible-password"}
+                autoCorrect={false}
+                style={{ minHeight: 160, textAlignVertical: "top", writingDirection: "ltr", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}
+              />
+              {weightsText ? <Button title="ניקוי רשימה" variant="ghost" onPress={clearPhotoList} /> : null}
+            </>
+          ) : mode === "paste" ? (
             <>
               <Hint>שורה לכל קרטון. אפשר להוסיף מזהה ייחודי אחרי רווח, למשל: 4.34 1219</Hint>
               <Field

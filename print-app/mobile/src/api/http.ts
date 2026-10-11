@@ -29,6 +29,7 @@ export type RequestOptions = {
   apiKey: string;
   json?: unknown;
   form?: FormData;
+  timeoutMs?: number; // ברירת מחדל REQUEST_TIMEOUT_MS
 };
 
 /** שולח בקשה ומחזיר את גוף התשובה כ-JSON (או null אם אין JSON), יחד עם הסטטוס. */
@@ -43,7 +44,7 @@ export async function request<T>(url: string, opts: RequestOptions): Promise<{ s
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(url, { method: opts.method ?? "GET", headers, body, signal: controller.signal });
