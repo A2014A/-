@@ -81,21 +81,47 @@ export async function previewFromText(baseUrl: string, apiKey: string, sku: stri
 
 export type PickedFile = { uri: string; name: string; mimeType?: string };
 
+/**
+ * קורא קובץ מקומי (file:// או content://) ומחזיר אותו כ-base64, בלי הקידומת data:.
+ * הקבצים נשלחים לשרת כ-JSON ולא כ-multipart, כי העלאת multipart מהטלפון לא הייתה אמינה.
+ */
+export async function readFileBase64(uri: string): Promise<string> {
+  let blob: Blob;
+  try {
+    blob = await (await fetch(uri)).blob();
+  } catch {
+    throw new ApiError("server", "לא ניתן לקרוא את הקובץ מהטלפון.");
+  }
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("read")));
+    reader.onerror = () => reject(new Error("read"));
+    reader.readAsDataURL(blob);
+  }).catch(() => {
+    throw new ApiError("server", "לא ניתן לקרוא את הקובץ מהטלפון.");
+  });
+  const comma = dataUrl.indexOf(",");
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+
+/** קוד 413 = הקובץ גדול מדי (מעל 15MB בשרת). */
+function ensureUploadOk<T>(status: number, body: T | null): T {
+  if (status === 413) {
+    const err = (body as { error?: unknown } | null)?.error;
+    const msg = typeof err === "string" && err ? err : "הקובץ גדול מדי (מעל 15MB)";
+    throw new ApiError("server", msg, 413);
+  }
+  return ensureOk(status, body);
+}
+
 export async function previewFromExcel(baseUrl: string, apiKey: string, sku: string, file: PickedFile): Promise<PreviewResponse> {
-  const form = new FormData();
-  form.append("sku", sku);
-  // ב-React Native מצרפים קובץ לפי uri/name/type
-  form.append("file", {
-    uri: file.uri,
-    name: file.name,
-    type: file.mimeType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  } as unknown as Blob);
+  const fileBase64 = await readFileBase64(file.uri);
   const { status, body } = await request<PreviewResponse>(joinUrl(baseUrl, "/cheese-preview-upload"), {
     method: "POST",
     apiKey,
-    form,
+    json: { sku, fileBase64, fileName: file.name },
   });
-  return ensureOk(status, body);
+  return ensureUploadOk(status, body);
 }
 
 /**
@@ -169,26 +195,22 @@ export type OcrCarton = {
 
 export type OcrResponse = { cartons: OcrCarton[]; batchNumber: string | null };
 
-export type Photo = { uri: string; mimeType?: string; fileName?: string | null };
+/** base64 מגיע ישירות מהמצלמה; בתמונות מהגלריה הוא נקרא מהקובץ רק כשמגיע תורן (לחסוך זיכרון). */
+export type Photo = { uri: string; mimeType?: string; fileName?: string | null; base64?: string | null };
 
 /** הזיהוי לוקח בדרך כלל 10-40 שניות. */
 const OCR_TIMEOUT_MS = 95_000;
 
 export async function recognizeCartons(baseUrl: string, apiKey: string, photo: Photo): Promise<OcrResponse> {
-  const form = new FormData();
-  form.append("image", {
-    uri: photo.uri,
-    name: photo.fileName || "carton.jpg",
-    type: photo.mimeType || "image/jpeg",
-  } as unknown as Blob);
+  const imageBase64 = photo.base64 || (await readFileBase64(photo.uri));
   const { status, body } = await request<OcrResponse>(joinUrl(baseUrl, "/cheese-ocr"), {
     method: "POST",
     apiKey,
-    form,
+    json: { imageBase64, mediaType: photo.mimeType || "image/jpeg" },
     timeoutMs: OCR_TIMEOUT_MS,
   });
   if (status === 404) throw new ApiError("server", "השרת עדיין לא מעודכן לזיהוי מתמונה.", 404);
-  const res = ensureOk(status, body);
+  const res = ensureUploadOk(status, body);
   if (!Array.isArray(res.cartons)) throw new ApiError("server", serverErrorMessage(res, status), status);
   return res;
 }

@@ -228,7 +228,9 @@ export default function CheeseScreen() {
   };
 
   const addPhotos = (assets: ImagePicker.ImagePickerAsset[]) => {
-    photoQueue.current.push(...assets.map((a) => ({ uri: a.uri, mimeType: a.mimeType, fileName: a.fileName })));
+    photoQueue.current.push(
+      ...assets.map((a) => ({ uri: a.uri, mimeType: a.mimeType, fileName: a.fileName, base64: a.base64 })),
+    );
     setOcrError(null);
     runOcrQueue();
   };
@@ -240,7 +242,7 @@ export default function CheeseScreen() {
         setOcrError("אין הרשאה למצלמה. אפשר לאשר בהגדרות הטלפון ← אפליקציות ← הדפסת מדבקות ← הרשאות.");
         return;
       }
-      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
+      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7, base64: true });
       if (res.canceled || !res.assets?.length) return;
       addPhotos(res.assets);
     } catch {
