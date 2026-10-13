@@ -1,6 +1,9 @@
 // שרת הגבינות (cheese_app.py + cheese_labels_routes.py).
 // מבנה הבקשות והתשובות זהה ל-cheese-labels.html ול-cheese_labels_routes.py.
 
+import * as FileSystem from "expo-file-system/legacy";
+import { Platform } from "react-native";
+
 import { ApiError, BAD_KEY_MSG, NO_CONNECTION_MSG, REQUEST_TIMEOUT_MS, joinUrl, request, serverErrorMessage } from "./http";
 
 /** GET /cheese-items מחזיר רק את שלושת השדות האלה. */
@@ -86,6 +89,14 @@ export type PickedFile = { uri: string; name: string; mimeType?: string };
  * הקבצים נשלחים לשרת כ-JSON ולא כ-multipart, כי העלאת multipart מהטלפון לא הייתה אמינה.
  */
 export async function readFileBase64(uri: string): Promise<string> {
+  if (Platform.OS !== "web") {
+    // בטלפון קוראים ישירות מהקובץ (expo-file-system), בלי fetch ל-file://
+    try {
+      return await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    } catch {
+      throw new ApiError("server", "לא ניתן לקרוא את הקובץ מהטלפון.");
+    }
+  }
   let blob: Blob;
   try {
     blob = await (await fetch(uri)).blob();
