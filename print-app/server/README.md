@@ -13,9 +13,11 @@
 | `print.html` | הסוד הוסר מהדף. יש שדה "מפתח גישה" שנשמר בדפדפן. |
 | `cheese-labels.html` | שדה "מפתח גישה". תמונת התווית נטענת עם המפתח. |
 | `cheese_ocr.py` | **חדש.** זיהוי משקלים מצילום קרטונים (`POST /cheese-ocr`), ראה בהמשך. |
+| `cheese_upload.py` | **חדש.** פענוח קבצים שהאפליקציה שולחת כ-base64 ב-JSON (תמונה ו-Excel). |
+| `test_cheese_upload.py` | בדיקות: `py -m unittest test_cheese_upload -v` |
 
 `/health` ו-`/status/<id>` לא השתנו.
-`cheese_labels_routes.py`, `cheese_barcode.py`, `cheese_label_image.py` לא השתנו.
+`cheese_barcode.py` לא השתנה. `cheese_labels_routes.py` ו-`cheese_label_image.py`: קבלת Excel כ-JSON, משקל עם 3 ספרות כשצריך, סגירת תבנית בלי שמירה.
 
 ### JP Quality
 JP Quality שולחת בקשות חתומות ב-HMAC, ולכן ממשיכה לעבוד בלי שום שינוי מצידה.

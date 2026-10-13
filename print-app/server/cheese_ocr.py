@@ -21,6 +21,8 @@ import os
 
 from flask import Blueprint, jsonify, request
 
+from cheese_upload import UploadError, decode_base64_upload
+
 cheese_ocr_bp = Blueprint("cheese_ocr", __name__)
 
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -201,14 +203,23 @@ def _api_error(e, anthropic_mod):
 def cheese_ocr():
     """
     Body (multipart): image=<קובץ תמונה>
+      או (JSON, מהאפליקציה): {"imageBase64": "<base64 בלי קידומת data:>", "mediaType": "image/jpeg"}
     Response: { "cartons": [{cartonNo, weightKg, weightText, confidence, note}], "batchNumber": "..." | null }
     """
-    f = request.files.get("image")
-    if f is None:
-        return jsonify({"error": "לא נשלחה תמונה", "errorCode": "NO_IMAGE"}), 400
-    raw = f.read(MAX_UPLOAD_BYTES + 1)
-    if len(raw) > MAX_UPLOAD_BYTES:
-        return jsonify({"error": "התמונה גדולה מדי", "errorCode": "IMAGE_TOO_LARGE"}), 400
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        try:
+            raw = decode_base64_upload(body.get("imageBase64"))
+        except UploadError as e:
+            code = "IMAGE_TOO_LARGE" if e.status == 413 else "BAD_IMAGE_DATA"
+            return jsonify({"error": e.message, "errorCode": code}), e.status
+    else:
+        f = request.files.get("image")
+        if f is None:
+            return jsonify({"error": "לא נשלחה תמונה", "errorCode": "NO_IMAGE"}), 400
+        raw = f.read(MAX_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_UPLOAD_BYTES:
+            return jsonify({"error": "התמונה גדולה מדי", "errorCode": "IMAGE_TOO_LARGE"}), 400
     try:
         media_type, image_b64 = prepare_image(raw)
         return jsonify(recognize(media_type, image_b64))

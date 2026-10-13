@@ -23,6 +23,14 @@ def _rtl(text: str) -> str:
     return bidi_algo.get_display(arabic_reshaper.reshape(text))
 
 
+def format_weight_kg(weight_kg: float) -> str:
+    """Weight as printed on the label, consistent with the barcode's grams
+    (same round(kg * 1000) as make_barcode): 3 decimals only when the grams
+    need them (3.286), otherwise 2 as before (4.74, 4.70)."""
+    grams = round(weight_kg * 1000)
+    return f"{grams / 1000:.3f}" if grams % 10 else f"{grams / 1000:.2f}"
+
+
 def render_label_image(barcode_value: str, weight_kg: float, product_he: str,
                         product_en: str, cheese_no: str = "") -> bytes:
     """Returns PNG bytes for a single label preview, roughly matching the
@@ -60,7 +68,7 @@ def render_label_image(barcode_value: str, weight_kg: float, product_he: str,
     y = 20 + barcode_img.height + 15
 
     # Weight (Hebrew, right-aligned) + cheese number (left-aligned), same line.
-    weight_text = _rtl(f'משקל: {weight_kg:.2f}')
+    weight_text = _rtl(f'משקל: {format_weight_kg(weight_kg)}')
     draw.text((W - 30, y), weight_text, font=font_bold, fill="black", anchor="ra")
     if cheese_no:
         draw.text((30, y), str(cheese_no), font=font_bold, fill="black", anchor="la")

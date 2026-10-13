@@ -24,7 +24,8 @@ from flask import Blueprint, request, jsonify, Response
 import openpyxl
 
 from cheese_barcode import make_barcode, parse_weight_rows
-from cheese_label_image import render_label_image
+from cheese_upload import MAX_JSON_UPLOAD_BYTES, UploadError, decode_base64_upload
+from cheese_label_image import format_weight_kg, render_label_image
 
 # --- EDIT THIS to the real path of the cheese label .btw template ---
 CHEESE_LABEL_TEMPLATE_PATH = r"C:\Labels\CheeseLabel.btw"
@@ -34,6 +35,11 @@ CHEESE_LABEL_TEMPLATE_PATH = r"C:\Labels\CheeseLabel.btw"
 CHEESE_HEADER_TEMPLATE_PATH = None  # e.g. r"C:\Labels\HeaderCheeseLabel.btw"
 
 CHEESE_ITEMS_XLSX = r"C:\BarTenderWebhook\cheese_items.xlsx"
+
+# BtSaveOptions from the BarTender 11.0 type library (btPromptSave=0,
+# btDoNotSaveChanges=1, btSaveChanges=2). Close formats without saving —
+# otherwise every print writes its field values back into the .btw file.
+BT_DO_NOT_SAVE_CHANGES = 1
 
 cheese_bp = Blueprint("cheese_labels", __name__)
 
@@ -155,23 +161,41 @@ def cheese_preview():
 @cheese_bp.route("/cheese-preview-upload", methods=["POST"])
 def cheese_preview_upload():
     """Same as /cheese-preview, but weights come from an uploaded Excel file
-    (multipart/form-data: 'file' + 'sku'). Column A = weight, column B
+    (multipart/form-data: 'file' + 'sku', or JSON from the mobile app:
+    {"sku", "fileBase64", "fileName"}). Column A = weight, column B
     (optional) = unique carton ID."""
-    sku = request.form.get("sku")
-    file = request.files.get("file")
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        sku = body.get("sku")
+        try:
+            content = decode_base64_upload(body.get("fileBase64"))
+        except UploadError as e:
+            return jsonify({"error": e.message}), e.status
+        logging.info(f"cheese-preview-upload (JSON): {body.get('fileName') or '?'} ({len(content)} bytes)")
+    else:
+        sku = request.form.get("sku")
+        file = request.files.get("file")
+        if not file:
+            return jsonify({"error": "No file uploaded"}), 400
+        content = file.read(MAX_JSON_UPLOAD_BYTES + 1)
+        if len(content) > MAX_JSON_UPLOAD_BYTES:
+            return jsonify({"error": "הקובץ גדול מדי (מעל 15MB)"}), 413
 
-    wb = openpyxl.load_workbook(io.BytesIO(file.read()), read_only=True)
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
+    except Exception:
+        return jsonify({"error": "הקובץ אינו קובץ Excel תקין (xlsx)"}), 400
     ws = wb.active
     parsed_rows = []
-    for row in ws.iter_rows(min_row=1, values_only=True):
+    excel_rows = []  # מספר השורה באקסל לכל משקל - להודעת שגיאה בלבד
+    for row_no, row in enumerate(ws.iter_rows(min_row=1, values_only=True), start=1):
         cells = [c for c in row if c is not None]
         if not cells or not isinstance(cells[0], (int, float)):
             continue
         weight = float(cells[0])
         unique_id = str(cells[1]) if len(cells) > 1 else ""
         parsed_rows.append({"weightKg": weight, "uniqueId": unique_id})
+        excel_rows.append(row_no)
 
     items = {i["sku"]: i for i in load_cheese_items()}
     item = items.get(sku)
@@ -181,7 +205,21 @@ def cheese_preview_upload():
         return jsonify({"error": "No numeric weights found in file"}), 400
 
     item_code = str(item["itemCode"]).zfill(4)
-    rows = _rows_with_barcodes(parsed_rows, item_code)
+
+    # האפליקציה (JSON) מציגה רק את error - משקל שלא נכנס לברקוד (4 ספרות גרם, עד 9.999 ק"ג)
+    # מחזיר 400 עם הודעה בעברית במקום 500. ה-multipart (cheese-labels.html) נשאר כמו שהיה.
+    if request.is_json:
+        for pr, row_no in zip(parsed_rows, excel_rows):
+            if not 0 <= round(pr["weightKg"] * 1000) <= 9999:
+                return jsonify({"error": f'שורה {row_no} בקובץ: משקל {pr["weightKg"]:g} ק"ג לא תקין - '
+                                         f'המשקל חייב להיות בין 0 ל-9.999 ק"ג. תקן את הקובץ ונסה שוב.'}), 400
+        try:
+            rows = _rows_with_barcodes(parsed_rows, item_code)
+        except ValueError as e:
+            logging.error(f"cheese-preview-upload (JSON): {e}")
+            return jsonify({"error": "לא ניתן לחשב ברקוד לאחד המשקלים בקובץ. בדוק את הקובץ ונסה שוב."}), 400
+    else:
+        rows = _rows_with_barcodes(parsed_rows, item_code)
 
     return jsonify({
         "sku": sku, "productHe": item["productHe"], "productEn": item["productEn"],
@@ -239,7 +277,7 @@ def print_cheese_batch_via_bartender(rows, batch_number, product_en, product_he)
                         logging.warning(f"שדה כותרת '{fname}' לא נמצא: {e}")
                 header_fmt.PrintOut(False, False)
             finally:
-                header_fmt.Close(2)
+                header_fmt.Close(BT_DO_NOT_SAVE_CHANGES)
 
         fmt = bt.Formats.Open(CHEESE_LABEL_TEMPLATE_PATH, False, "")
         try:
@@ -248,7 +286,7 @@ def print_cheese_batch_via_bartender(rows, batch_number, product_en, product_he)
                     "מספר_אצווה": batch_number,
                     "מזהה_קרטון": r.get("uniqueId", "") or "",
                     "ברקוד": r["barcode"],
-                    "משקל": f'{r["weightKg"]:.2f}',
+                    "משקל": format_weight_kg(r["weightKg"]),
                     "שם_אנגלית": product_en,
                     "שם_עברית": product_he,
                 }
@@ -259,12 +297,12 @@ def print_cheese_batch_via_bartender(rows, batch_number, product_en, product_he)
                         logging.warning(f"שדה '{field}' לא נמצא ב-{CHEESE_LABEL_TEMPLATE_PATH}: {e}")
                 fmt.PrintOut(False, False)
         finally:
-            fmt.Close(2)
+            fmt.Close(BT_DO_NOT_SAVE_CHANGES)
 
     finally:
         if bt is not None:
             try:
-                bt.Quit(2)
+                bt.Quit(BT_DO_NOT_SAVE_CHANGES)
             except Exception:
                 pass
         pythoncom.CoUninitialize()
