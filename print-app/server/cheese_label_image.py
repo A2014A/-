@@ -24,11 +24,10 @@ def _rtl(text: str) -> str:
 
 
 def format_weight_kg(weight_kg: float) -> str:
-    """Weight as printed on the label, consistent with the barcode's grams
-    (same round(kg * 1000) as make_barcode): 3 decimals only when the grams
-    need them (3.286), otherwise 2 as before (4.74, 4.70)."""
+    """Weight as printed on the label: always the exact 4 weight digits of the
+    barcode (same round(kg * 1000) as make_barcode), e.g. 4.740, 3.286."""
     grams = round(weight_kg * 1000)
-    return f"{grams / 1000:.3f}" if grams % 10 else f"{grams / 1000:.2f}"
+    return f"{grams / 1000:.3f}"
 
 
 def render_label_image(barcode_value: str, weight_kg: float, product_he: str,

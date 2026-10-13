@@ -588,7 +588,7 @@ export default function CheeseScreen() {
                 <View key={r.index} style={{ backgroundColor: r.duplicate ? colors.dangerSoft : "#fff", borderTopWidth: 1, borderTopColor: colors.line }}>
                   <View style={tableRow}>
                     <Text style={[cell, { flex: 0.5 }]}>{r.index}</Text>
-                    <Text style={[cell, { flex: 1 }, bold, r.duplicate && { color: colors.danger }]}>{r.weightKg.toFixed(2)}</Text>
+                    <Text style={[cell, { flex: 1 }, bold, r.duplicate && { color: colors.danger }]}>{r.weightKg.toFixed(3)}</Text>
                     <Text style={[cell, { flex: 1 }]}>{r.uniqueId || "-"}</Text>
                     <Text style={[cell, { flex: 2.2, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }]}>{r.barcode}</Text>
                   </View>

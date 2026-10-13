@@ -443,7 +443,7 @@ function renderPreview(data) {
   body.innerHTML = data.rows.map(r => `
     <tr class="${r.duplicate ? 'dup' : ''}">
       <td>${r.index}</td>
-      <td>${r.weightKg.toFixed(2)}</td>
+      <td>${r.weightKg.toFixed(3)}</td>
       <td>${r.uniqueId || '-'}</td>
       <td>${r.barcode}</td>
       <td><span class="view-link" data-weight="${r.weightKg}" data-uid="${r.uniqueId || ''}">הצג תווית</span></td>

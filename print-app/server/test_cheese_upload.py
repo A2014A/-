@@ -177,10 +177,10 @@ class RoutesTest(unittest.TestCase):
 
 
 class WeightFormatTest(unittest.TestCase):
-    """המשקל המודפס תואם לגרמים שבברקוד: 3 ספרות רק כשצריך (3.286), אחרת 2 כמו קודם (4.74)."""
+    """המשקל המודפס זהה ל-4 ספרות המשקל שבברקוד: תמיד 3 ספרות אחרי הנקודה (4.740, 3.286)."""
 
-    CASES = {3.286: "3.286", 4.74: "4.74", 4.7: "4.70", 4: "4.00", 4.745: "4.745", 0.05: "0.05",
-             9.999: "9.999", 3.2860000001: "3.286", 1.1 + 2.2: "3.30", 4.3399999: "4.34"}
+    CASES = {3.286: "3.286", 4.74: "4.740", 4.7: "4.700", 4: "4.000", 4.745: "4.745", 0.05: "0.050",
+             9.999: "9.999", 3.2860000001: "3.286", 1.1 + 2.2: "3.300", 4.3399999: "4.340"}
 
     def test_format_matches_barcode_grams(self):
         from cheese_barcode import make_barcode
@@ -205,7 +205,7 @@ class WeightFormatTest(unittest.TestCase):
         with mock.patch.object(routes.win32com.client, "Dispatch", return_value=bt), \
              mock.patch.object(routes.pythoncom, "CoInitialize"), mock.patch.object(routes.pythoncom, "CoUninitialize"):
             routes.print_cheese_batch_via_bartender(rows, "B1", "Gouda", "גאודה")
-        self.assertEqual(sent, ["3.286", "4.74", "4.70"])
+        self.assertEqual(sent, ["3.286", "4.740", "4.700"])
         self.assertEqual(fmt.PrintOut.call_count, 3)
         fmt.Close.assert_called_once_with(routes.BT_DO_NOT_SAVE_CHANGES)
 
