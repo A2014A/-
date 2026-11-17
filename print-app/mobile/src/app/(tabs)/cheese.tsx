@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -283,6 +284,7 @@ export default function CheeseScreen() {
   const listWarnings = mode === "photo" ? checkWeightLines(weightsText) : [];
 
   const onPreview = async () => {
+    Keyboard.dismiss(); // שהתוצאה לא תוסתר מאחורי המקלדת
     if (!sku) {
       setPreviewMsg({ kind: "error", text: "בחר מוצר קודם." });
       return;
@@ -517,7 +519,7 @@ export default function CheeseScreen() {
               {ocrError ? <Banner kind="error" text={ocrError} /> : null}
               {ocrNotes.length ? <Banner kind="info" text={ocrNotes.join("\n")} /> : null}
               {listWarnings.length ? <Banner kind="error" text={listWarnings.join("\n")} /> : null}
-              <Label>{`רשימה (${weightsText.trim() ? weightsText.trim().split(/\n+/).length : 0} קרטונים) - משקל ואחריו מספר קרטון`}</Label>
+              <Label>{`רשימה (${countLines(weightsText)} קרטונים) - משקל ואחריו מספר קרטון`}</Label>
               <Field
                 value={weightsText}
                 onChangeText={(t) => {
@@ -528,13 +530,14 @@ export default function CheeseScreen() {
                 placeholder={"4.74 1\n3.286 2"}
                 keyboardType={Platform.OS === "ios" ? "default" : "visible-password"}
                 autoCorrect={false}
-                style={{ minHeight: 160, textAlignVertical: "top", writingDirection: "ltr", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}
+                style={weightsBoxStyle}
               />
               {weightsText ? <Button title="ניקוי רשימה" variant="ghost" onPress={clearPhotoList} /> : null}
             </>
           ) : mode === "paste" ? (
             <>
               <Hint>שורה לכל קרטון. אפשר להוסיף מזהה ייחודי אחרי רווח, למשל: 4.34 1219</Hint>
+              <Label>{`רשימה (${countLines(weightsText)} שורות)`}</Label>
               <Field
                 value={weightsText}
                 onChangeText={(t) => {
@@ -545,7 +548,7 @@ export default function CheeseScreen() {
                 placeholder={"4.34\n4.39 1220\n4.42"}
                 keyboardType={Platform.OS === "ios" ? "default" : "visible-password"}
                 autoCorrect={false}
-                style={{ minHeight: 160, textAlignVertical: "top", writingDirection: "ltr", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}
+                style={weightsBoxStyle}
               />
             </>
           ) : (
@@ -623,6 +626,19 @@ export default function CheeseScreen() {
       </Modal>
     </KeyboardAvoidingView>
   );
+}
+
+// רשימה ארוכה נגללת בתוך התיבה, כדי שכפתור "תצוגה מקדימה" יישאר קרוב ונגיש
+const weightsBoxStyle = {
+  minHeight: 160,
+  maxHeight: 240,
+  textAlignVertical: "top" as const,
+  writingDirection: "ltr" as const,
+  fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+};
+
+function countLines(text: string): number {
+  return text.split(/\r?\n/).filter((l) => l.trim()).length;
 }
 
 const tableRow = { flexDirection: "row" as const, paddingHorizontal: 10, paddingVertical: 10, gap: 6 };
